@@ -84,6 +84,28 @@ class Pac(pygame.sprite.Sprite):
 		if self._is_collide(*self.direction):
 			self.status = "idle" if not self.immune else "power_up"
 
+	def animateRL(self, action_direction, walls_collide_list):
+
+		# Recupera l'animazione corrente
+		animation = self.animations[self.status]
+
+		# Ciclo sull'indice dei frame
+		self.frame_index += self.animation_speed
+		if self.frame_index >= len(animation):
+			self.frame_index = 0
+		image = animation[int(self.frame_index)]
+		self.image = pygame.transform.scale(image, (CHAR_SIZE, CHAR_SIZE))
+
+		# Imposta la direzione basandoti sull'azione dell'agente RL
+		self.walls_collide_list = walls_collide_list
+		self.direction = self.directions[action_direction] # Usa l'azione per determinare la direzione
+
+		# Verifica collisioni e aggiorna lo stato e la posizione
+		if not self._is_collide(*self.direction):
+			self.rect.move_ip(self.direction)
+			self.status = self.status if not self.immune else "power_up"
+		else:
+			self.status = "idle" if not self.immune else "power_up"
 
 	def update(self):
 		# Timer based from FPS count

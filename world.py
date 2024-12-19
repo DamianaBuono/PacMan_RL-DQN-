@@ -126,19 +126,54 @@ class World:
 		self.player.sprite.direction = actions_map[action]
 
 	def updateRL(self):
-
 		if not self.game_over:
+			# Ripulisci lo schermo
+			self.screen.fill("black")
+
 			# RL: Ottieni lo stato corrente
 			current_state = self.get_current_state()
+
 			# RL: Scegli l'azione usando la politica epsilon-greedy
 			action = choose_action(current_state, epsilon=0.1)
 
 			# RL: Applica l'azione a Pac-Man
 			self.apply_action(action)
+			self.player.sprite.animateRL(action, self.walls_collide_list)
 
-			# Aggiorna il mondo di gioco
-			pressed_key = pygame.key.get_pressed()
-			self.player.sprite.animate(pressed_key, self.walls_collide_list)
+			'''
+			# Teletrasporto ai lati opposti
+			if self.player.sprite.rect.right <= 0:
+				self.player.sprite.rect.x = WIDTH
+			elif self.player.sprite.rect.left >= WIDTH:
+				self.player.sprite.rect.x = 0
+			'''
+
+			# PacMan raccoglie bacche
+			for berry in self.berries.sprites():
+				if self.player.sprite.rect.colliderect(berry.rect):
+					if berry.power_up:
+						self.player.sprite.immune_time = 150  # Timer per power-up
+						self.player.sprite.pac_score += 50
+					else:
+						self.player.sprite.pac_score += 10
+					berry.kill()
+
+			# PacMan collide con i fantasmi
+			for ghost in self.ghosts.sprites():
+				if self.player.sprite.rect.colliderect(ghost.rect):
+					if not self.player.sprite.immune:
+						time.sleep(2)
+						self.player.sprite.life -= 1
+						self.reset_pos = True
+						break
+					else:
+						ghost.move_to_start_pos()
+						self.player.sprite.pac_score += 100
+
+			# Controlla lo stato del gioco
+			self._check_game_state()
+
+			# Rendering
 			[wall.update(self.screen) for wall in self.walls.sprites()]
 			[berry.update(self.screen) for berry in self.berries.sprites()]
 			[ghost.update(self.walls_collide_list) for ghost in self.ghosts.sprites()]
@@ -156,8 +191,13 @@ class World:
 			# RL: Aggiorna la Q-table
 			update_q(current_state, action, reward, next_state)
 
-
-
+			# Reset posizione Pac-Man e fantasmi se catturato
+			if self.reset_pos and not self.game_over:
+				[ghost.move_to_start_pos() for ghost in self.ghosts.sprites()]
+				self.player.sprite.move_to_start_pos()
+				self.player.sprite.status = "idle"
+				self.player.sprite.direction = (0, 0)
+				self.reset_pos = False
 
 	#GIOCO NON AUTONOMO
 	def update(self):

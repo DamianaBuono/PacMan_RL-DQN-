@@ -1,6 +1,9 @@
 import pygame, sys
+
+import reinforcement
 from settings import WIDTH, HEIGHT, NAV_HEIGHT
 from world import World
+
 
 pygame.init()
 
@@ -46,7 +49,9 @@ class Main:
 				self.FPS.tick(30)
 
 			# Stampa il risultato dell'episodio
-			print(f"Episode {episode + 1} completed. Score: {world.player.sprite.pac_score}")
+			print(f"Episode {episode} completed. Score: {world.player.sprite.pac_score}")
+
+		reinforcement.save_q_table()
 
 
 # Blocco principale
@@ -54,9 +59,9 @@ if __name__ == "__main__":
 	play = Main(screen)
 
 	# Modalità: scegli tra "training" o "game"
-	mode = "game"
+	mode = "training"
 
 	if mode == "training":
-		play.simulate_training(episodes=1000)
+		play.simulate_training(episodes=5)
 	elif mode == "game":
 		play.main()

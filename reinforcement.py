@@ -1,7 +1,22 @@
 import random
+import pickle
+
+def load_q_table(filename="q_table.pkl"):
+    """
+    Carica la Q-table da un file.
+    """
+    try:
+        with open(filename, "rb") as file:
+            q_table = pickle.load(file)
+        print(f"Q-table caricata da {filename}.")
+        return q_table
+    except FileNotFoundError:
+        print(f"File {filename} non trovato. Creazione di una nuova Q-table.")
+        return {}
 
 # Q-table inizialmente vuota
-q_table = {}
+q_table = load_q_table()
+
 
 
 def choose_action(state, epsilon=0.1):
@@ -45,6 +60,7 @@ def compute_reward(state, action, world):
     for berry in world.berries.sprites():
         if pac_rect.colliderect(berry.rect):
             reward += 50 if berry.power_up else 10
+            print(f"reward: ",reward)
 
     # Penalità per collisioni con fantasmi
     for ghost in world.ghosts.sprites():
@@ -53,8 +69,19 @@ def compute_reward(state, action, world):
                 reward -= 100
             else:
                 reward += 100
+        #print(f"reward: ", reward)
 
     # Bonus per sopravvivenza
     reward += 1
 
     return reward
+
+import pickle
+
+def save_q_table(filename="q_table.pkl"):
+    """
+    Salva la Q-table in un file.
+    """
+    with open(filename, "wb") as file:
+        pickle.dump(q_table, file)
+    print(f"Q-table salvata in {filename}.")
