@@ -158,7 +158,7 @@ class World:
 						self.player.sprite.pac_score += 50
 					else:
 						self.player.sprite.pac_score += 10
-
+					#modifica reward
 					reward = compute_reward(current_state, action, self)
 					next_state = self.get_current_state()
 					update_q(current_state, action, reward, next_state)

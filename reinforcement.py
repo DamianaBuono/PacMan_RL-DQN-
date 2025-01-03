@@ -74,6 +74,7 @@ def compute_reward(state, action, world):
                 reward -= 100
             else:
                 reward += 100
+            #stampa reward
             print(f"reward: {reward}")
 
     # reward+=1
