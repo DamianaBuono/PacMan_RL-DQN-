@@ -113,6 +113,7 @@ class World:
 		pac_direction = self.player.sprite.direction
 
 		# Ritorna lo stato come una tupla
+		#print(f"pac pos: {pac_pos}, pac_direction: {pac_direction}, ghosts: {ghosts}, berries: {berries}, power_up_active: {power_up_active}")
 		return (pac_pos, pac_direction, ghosts, berries, power_up_active)
 
 	def apply_action(self, action):
@@ -126,6 +127,7 @@ class World:
 		self.player.sprite.direction = actions_map[action]
 
 	def updateRL(self):
+
 		if not self.game_over:
 			# Ripulisci lo schermo
 			self.screen.fill("black")
@@ -156,6 +158,10 @@ class World:
 						self.player.sprite.pac_score += 50
 					else:
 						self.player.sprite.pac_score += 10
+
+					reward = compute_reward(current_state, action, self)
+					next_state = self.get_current_state()
+					update_q(current_state, action, reward, next_state)
 					berry.kill()
 
 			# PacMan collide con i fantasmi
@@ -164,10 +170,16 @@ class World:
 					if not self.player.sprite.immune:
 						time.sleep(2)
 						self.player.sprite.life -= 1
+						reward = compute_reward(current_state, action, self)
+						next_state = self.get_current_state()
+						update_q(current_state, action, reward, next_state)
 						self.reset_pos = True
 						break
 					else:
 						ghost.move_to_start_pos()
+						reward = compute_reward(current_state, action, self)
+						next_state = self.get_current_state()
+						update_q(current_state, action, reward, next_state)
 						self.player.sprite.pac_score += 100
 
 			# Controlla lo stato del gioco
@@ -186,10 +198,10 @@ class World:
 
 			# RL: Osserva lo stato successivo e calcola la ricompensa
 			next_state = self.get_current_state()
-			reward = compute_reward(current_state, action, self)
+			#reward = compute_reward(current_state, action, self)
 
 			# RL: Aggiorna la Q-table
-			update_q(current_state, action, reward, next_state)
+			#update_q(current_state, action, reward, next_state)
 
 			# Reset posizione Pac-Man e fantasmi se catturato
 			if self.reset_pos and not self.game_over:

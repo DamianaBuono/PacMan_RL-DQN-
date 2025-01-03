@@ -19,6 +19,7 @@ q_table = load_q_table()
 
 
 
+
 def choose_action(state, epsilon=0.1):
     """
     Sceglie un'azione basandosi sulla politica epsilon-greedy.
@@ -50,31 +51,35 @@ def update_q(state, action, reward, next_state, alpha=0.1, gamma=0.9):
 
 
 def compute_reward(state, action, world):
-    """
-    Calcola la ricompensa basandosi sullo stato e sull'azione.
-    """
     reward = 0
 
-    # Ricompensa per raccogliere bacche
+    # Rettangolo di Pac-Man
     pac_rect = world.player.sprite.rect
+    #print(f"Pac-Man rect: {pac_rect}")
+
+    # Ricompensa per raccogliere bacche
     for berry in world.berries.sprites():
+        #print(f"Bacca rect: {berry.rect}")
         if pac_rect.colliderect(berry.rect):
+            print("Collisione con bacca!")
             reward += 50 if berry.power_up else 10
-            print(f"reward: ",reward)
+            print(f"reward: {reward}")
 
     # Penalità per collisioni con fantasmi
     for ghost in world.ghosts.sprites():
+        #print(f"Fantasma rect: {ghost.rect}")
         if pac_rect.colliderect(ghost.rect):
+            print("Collisione con fantasma!")
             if not world.player.sprite.immune:
                 reward -= 100
             else:
                 reward += 100
-        #print(f"reward: ", reward)
+            print(f"reward: {reward}")
 
-    # Bonus per sopravvivenza
-    reward += 1
+    # reward+=1
 
     return reward
+
 
 import pickle
 
