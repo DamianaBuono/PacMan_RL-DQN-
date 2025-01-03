@@ -43,14 +43,14 @@ class World:
 				# for Ghosts's starting position
 				elif char == "s":
 					self.ghosts.add(Ghost(x_index, y_index, "skyblue"))
-				elif char == "p": 
+				elif char == "p":
 					self.ghosts.add(Ghost(x_index, y_index, "pink"))
 				elif char == "o":
 					self.ghosts.add(Ghost(x_index, y_index, "orange"))
 				elif char == "r":
 					self.ghosts.add(Ghost(x_index, y_index, "red"))
 
-				elif char == "P":	# for PacMan's starting position 
+				elif char == "P":	# for PacMan's starting position
 					self.player.add(Pac(x_index, y_index))
 
 		self.walls_collide_list = [wall.rect for wall in self.walls.sprites()]
@@ -82,7 +82,7 @@ class World:
 	def _dashboard(self):
 		nav = pygame.Rect(0, HEIGHT, WIDTH, NAV_HEIGHT)
 		pygame.draw.rect(self.screen, pygame.Color("cornsilk4"), nav)
-		
+
 		self.display.show_life(self.player.sprite.life)
 		self.display.show_level(self.game_level)
 		self.display.show_score(self.player.sprite.pac_score)
@@ -127,45 +127,34 @@ class World:
 		self.player.sprite.direction = actions_map[action]
 
 	total_reward=0
+
 	def updateRL(self):
-
 		if not self.game_over:
-			# Ripulisci lo schermo
 			self.screen.fill("black")
-
-			# RL: Ottieni lo stato corrente
 			current_state = self.get_current_state()
-
-			# RL: Scegli l'azione usando la politica epsilon-greedy
 			action = choose_action(current_state, epsilon=0.1)
-
-			# RL: Applica l'azione a Pac-Man
+			print("!!!Azione!!! ", action)
 			self.apply_action(action)
 			self.player.sprite.animateRL(action, self.walls_collide_list)
 
-			'''
-			# Teletrasporto ai lati opposti
-			if self.player.sprite.rect.right <= 0:
-				self.player.sprite.rect.x = WIDTH
-			elif self.player.sprite.rect.left >= WIDTH:
-				self.player.sprite.rect.x = 0
-			'''
+			# Incrementa il timer per ritardo nelle bacche
+			self.player.sprite.time_since_last_berry += 0
 
 			# PacMan raccoglie bacche
 			for berry in self.berries.sprites():
 				if self.player.sprite.rect.colliderect(berry.rect):
 					if berry.power_up:
-						self.player.sprite.immune_time = 150  # Timer per power-up
+						self.player.sprite.immune_time = 150
 						self.player.sprite.pac_score += 50
 					else:
 						self.player.sprite.pac_score += 10
-					#modifica reward
 					reward = compute_reward(current_state, action, self)
 					next_state = self.get_current_state()
 					update_q(current_state, action, reward, next_state)
 					self.total_reward += reward
-					print("-----------total reward:",self.total_reward)
+					print("-----------total reward:", self.total_reward)
 					berry.kill()
+					self.player.sprite.time_since_last_berry = 0  # Resetta il timer
 
 			# PacMan collide con i fantasmi
 			for ghost in self.ghosts.sprites():
@@ -189,10 +178,9 @@ class World:
 						print("-----------total reward:", self.total_reward)
 						self.player.sprite.pac_score += 100
 
-			# Controlla lo stato del gioco
+
 			self._check_game_state()
 
-			# Rendering
 			[wall.update(self.screen) for wall in self.walls.sprites()]
 			[berry.update(self.screen) for berry in self.berries.sprites()]
 			[ghost.update(self.walls_collide_list) for ghost in self.ghosts.sprites()]
@@ -203,14 +191,8 @@ class World:
 			self.display.game_over() if self.game_over else None
 			self._dashboard()
 
-			# RL: Osserva lo stato successivo e calcola la ricompensa
-			next_state = self.get_current_state()
-			#reward = compute_reward(current_state, action, self)
+			#next_state = self.get_current_state()
 
-			# RL: Aggiorna la Q-table
-			#update_q(current_state, action, reward, next_state)
-
-			# Reset posizione Pac-Man e fantasmi se catturato
 			if self.reset_pos and not self.game_over:
 				[ghost.move_to_start_pos() for ghost in self.ghosts.sprites()]
 				self.player.sprite.move_to_start_pos()
@@ -252,6 +234,7 @@ class World:
 					else:
 						ghost.move_to_start_pos()
 						self.player.sprite.pac_score += 100
+
 
 		self._check_game_state()
 

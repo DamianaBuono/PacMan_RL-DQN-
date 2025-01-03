@@ -6,7 +6,7 @@ from animation import import_sprite
 class Pac(pygame.sprite.Sprite):
 	def __init__(self, row, col):
 		super().__init__()
-
+		self.time_since_last_berry = 0
 		self.abs_x = (row * CHAR_SIZE)
 		self.abs_y = (col * CHAR_SIZE)
 
