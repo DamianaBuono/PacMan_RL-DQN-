@@ -36,7 +36,7 @@ class Main:
 	def simulate_training(self, episodes):
 
 		#Modalità di allenamento per l'agente RL.
-
+		reward_all_episode=0
 		for episode in range(episodes):
 			print(f"episodio:",episode)
 			# Crea un nuovo mondo per ogni episodio
@@ -48,8 +48,10 @@ class Main:
 				pygame.display.update()
 				self.FPS.tick(30)
 
+			reward_all_episode+=world.total_reward
 			# Stampa il risultato dell'episodio
-			print(f"Episode {episode} completed. Score: {world.player.sprite.pac_score}")
+			print(f"Episode {episode} completed. Score: {world.player.sprite.pac_score}. Total_Reward {world.total_reward}. Reward_all_episode: {reward_all_episode}")
+
 
 		reinforcement.save_q_table()
 
@@ -62,6 +64,6 @@ if __name__ == "__main__":
 	mode = "training"
 
 	if mode == "training":
-		play.simulate_training(episodes=5)
+		play.simulate_training(episodes=3)
 	elif mode == "game":
 		play.main()

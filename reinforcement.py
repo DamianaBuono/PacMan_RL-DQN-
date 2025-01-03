@@ -43,6 +43,7 @@ def update_q(state, action, reward, next_state, alpha=0.1, gamma=0.9):
     Aggiorna la Q-table usando la formula Q-Learning.
     '''
 
+
     if next_state not in q_table:
         q_table[next_state] = {a: 0 for a in ['up', 'down', 'left', 'right']}
 

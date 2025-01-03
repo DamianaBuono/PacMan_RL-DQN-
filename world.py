@@ -126,6 +126,7 @@ class World:
 		}
 		self.player.sprite.direction = actions_map[action]
 
+	total_reward=0
 	def updateRL(self):
 
 		if not self.game_over:
@@ -162,6 +163,8 @@ class World:
 					reward = compute_reward(current_state, action, self)
 					next_state = self.get_current_state()
 					update_q(current_state, action, reward, next_state)
+					self.total_reward += reward
+					print("-----------total reward:",self.total_reward)
 					berry.kill()
 
 			# PacMan collide con i fantasmi
@@ -173,6 +176,8 @@ class World:
 						reward = compute_reward(current_state, action, self)
 						next_state = self.get_current_state()
 						update_q(current_state, action, reward, next_state)
+						self.total_reward += reward
+						print("-----------total reward:", self.total_reward)
 						self.reset_pos = True
 						break
 					else:
@@ -180,6 +185,8 @@ class World:
 						reward = compute_reward(current_state, action, self)
 						next_state = self.get_current_state()
 						update_q(current_state, action, reward, next_state)
+						self.total_reward += reward
+						print("-----------total reward:", self.total_reward)
 						self.player.sprite.pac_score += 100
 
 			# Controlla lo stato del gioco
