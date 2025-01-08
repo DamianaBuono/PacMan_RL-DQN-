@@ -5,15 +5,22 @@ from settings import CHAR_SIZE, MAP
 
 def load_q_table(filename="q_table.pkl"):
     """
-    Carica la Q-table da un file.
+    Carica la Q-table da un file. Se il file non esiste o è vuoto, crea una nuova Q-table.
     """
     try:
         with open(filename, "rb") as file:
-            q_table = pickle.load(file)
-        print(f"Q-table caricata da {filename}.")
-        return q_table
+            if file.peek(1):  # Controlla se il file non è vuoto
+                q_table = pickle.load(file)
+                print(f"Q-table caricata da {filename}.")
+                return q_table
+            else:
+                print(f"File {filename} è vuoto. Creazione di una nuova Q-table.")
+                return {}
     except FileNotFoundError:
         print(f"File {filename} non trovato. Creazione di una nuova Q-table.")
+        return {}
+    except EOFError:
+        print(f"Errore nella lettura del file {filename}. Creazione di una nuova Q-table.")
         return {}
 
 # Q-table inizialmente vuota
@@ -62,50 +69,31 @@ def compute_reward(state, action, world):
     for berry in world.berries.sprites():
         #print(f"Bacca rect: {berry.rect}")
         if pac_rect.colliderect(berry.rect):
-            print("Collisione con bacca!")
+            #print("Collisione con bacca!")
             reward += 50 if berry.power_up else 20
-            print(f"reward: {reward}")
+            #print(f"reward: {reward}")
 
     # Penalità per collisioni con fantasmi
     for ghost in world.ghosts.sprites():
         #print(f"Fantasma rect: {ghost.rect}")
         if pac_rect.colliderect(ghost.rect):
-            print("Collisione con fantasma!")
+            #print("Collisione con fantasma!")
             if not world.player.sprite.immune:
                 reward -= 50
             else:
                 reward += 100
             #stampa reward
-            print(f"reward: {reward}")
+            #print(f"reward: {reward}")
 
-    # reward+=1
-        ''' # Penalità per collisione con muri
-        if any(pac_rect.colliderect(wall.rect) for wall in world.walls.sprites()):
-            print("Collisione con muro!")
-            reward -= 5  # Penalità per toccare il muro
-            print(f"reward: {reward}")'''
+    reward+=5
+
 
     if world.player.sprite.time_since_last_berry < 10:  # Controlla se il tempo è entro la soglia
-        print("Bacca mangiata velocemente!")
+        #print("Bacca mangiata velocemente!")
         reward += 10  # Ricompensa per aver mangiato entro il tempo richiesto
-        print(f"reward: {reward}")
-    else: reward -= 12
+        #print(f"reward: {reward}")
+    else: reward -= 2
 
-    '''  # Rettangolo di Pac-Man
-    pac_rect = world.player.sprite.rect
-    pac_x, pac_y = pac_rect.center
-    cell_x, cell_y = pac_x // CHAR_SIZE, pac_y // CHAR_SIZE  # Converte la posizione di Pac-Man in coordinate della mappa
-
-            # Determina la nuova posizione in base alla direzione dell'azione
-    dx, dy = world.player.sprite.direction
-    next_cell_x = cell_x + dx // CHAR_SIZE
-    next_cell_y = cell_y + dy // CHAR_SIZE
-
-            # Penalità per collisioni con i muri
-    if MAP[next_cell_y][next_cell_x] == "1":  # Controlla se la prossima posizione è un muro
-        print("Pac-Man ha tentato di muoversi verso un muro!")
-        reward -= 10  # Penalità per tentativo di attraversare un muro
-        print(f"reward: {reward}")'''
 
     return reward
 

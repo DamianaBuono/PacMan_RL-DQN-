@@ -132,13 +132,13 @@ class World:
 		if not self.game_over:
 			self.screen.fill("black")
 			current_state = self.get_current_state()
-			action = choose_action(current_state, epsilon=0.1)
-			print("!!!Azione!!! ", action)
+			action = choose_action(current_state, epsilon=0.3)
+			#print("!!!Azione!!! ", action)
 			self.apply_action(action)
 			self.player.sprite.animateRL(action, self.walls_collide_list)
 
 			# Incrementa il timer per ritardo nelle bacche
-			self.player.sprite.time_since_last_berry += 0
+			self.player.sprite.time_since_last_berry += 1
 
 			# PacMan raccoglie bacche
 			for berry in self.berries.sprites():
