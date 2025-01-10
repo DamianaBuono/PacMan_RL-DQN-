@@ -28,7 +28,7 @@ q_table = load_q_table()
 
 
 
-def choose_action(state, epsilon=0.1):
+def choose_action(state, epsilon=0.3):
     """
     Sceglie un'azione basandosi sulla politica epsilon-greedy.
     """
@@ -79,7 +79,7 @@ def compute_reward(state, action, world):
         if pac_rect.colliderect(ghost.rect):
             #print("Collisione con fantasma!")
             if not world.player.sprite.immune:
-                reward -= 50
+                reward -= 100
             else:
                 reward += 100
             #stampa reward
@@ -88,11 +88,12 @@ def compute_reward(state, action, world):
     reward+=5
 
 
-    if world.player.sprite.time_since_last_berry < 10:  # Controlla se il tempo è entro la soglia
-        #print("Bacca mangiata velocemente!")
-        reward += 10  # Ricompensa per aver mangiato entro il tempo richiesto
+    if world.player.sprite.time_since_last_berry > 10:  # Controlla se il tempo è entro la soglia
+        print("Bacca mangiata velocemente!", reward)
+        reward += -10  # Ricompensa per aver mangiato entro il tempo richiesto
+        print("NON mangia la bacca in tempo: ", reward)
         #print(f"reward: {reward}")
-    else: reward -= 2
+
 
 
     return reward
