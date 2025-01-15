@@ -128,77 +128,63 @@ class World:
 
 	total_reward=0
 
+	#Gestione Reinforcement Learning
 	def updateRL(self):
 		if not self.game_over:
-			self.screen.fill("black")
-			current_state = self.get_current_state()
+			self.screen.fill("black")  # Pulisce lo schermo
+			current_state = self.get_current_state()  # Ottieni lo stato attuale
+
+			# RL: Scegli l'azione
 			action = choose_action(current_state, epsilon=0.3)
-			#print("!!!Azione!!! ", action)
-			self.apply_action(action)
-			self.player.sprite.animateRL(action, self.walls_collide_list)
+			self.apply_action(action)  # Imposta la direzione basata sull'azione RL
 
-			# Incrementa il timer per ritardo nelle bacche
-			self.player.sprite.time_since_last_berry += 1
+			# Pac-Man si muove finché non incontra un muro e verifica le collisioni con bacche
+			self.player.sprite.animateRL(action, self.walls_collide_list, self.berries, self)
 
-			# PacMan raccoglie bacche
-			for berry in self.berries.sprites():
-				if self.player.sprite.rect.colliderect(berry.rect):
-					if berry.power_up:
-						self.player.sprite.immune_time = 150
-						self.player.sprite.pac_score += 50
-					else:
-						self.player.sprite.pac_score += 10
-					reward = compute_reward(current_state, action, self)
-					next_state = self.get_current_state()
-					update_q(current_state, action, reward, next_state)
-					self.total_reward += reward
-					print("-----------total reward:", self.total_reward)
-					berry.kill()
-					self.player.sprite.time_since_last_berry = 0  # Resetta il timer
-
-			# PacMan collide con i fantasmi
+			# Controlla le collisioni con i fantasmi
 			for ghost in self.ghosts.sprites():
 				if self.player.sprite.rect.colliderect(ghost.rect):
 					if not self.player.sprite.immune:
 						time.sleep(2)
 						self.player.sprite.life -= 1
-						reward = compute_reward(current_state, action, self)
-						next_state = self.get_current_state()
-						update_q(current_state, action, reward, next_state)
-						self.total_reward += reward
-						print("-----------total reward:", self.total_reward)
 						self.reset_pos = True
 						break
 					else:
 						ghost.move_to_start_pos()
-						reward = compute_reward(current_state, action, self)
-						next_state = self.get_current_state()
-						update_q(current_state, action, reward, next_state)
-						self.total_reward += reward
-						print("-----------total reward:", self.total_reward)
 						self.player.sprite.pac_score += 100
 
-
+			# Controlla lo stato del gioco
 			self._check_game_state()
 
-			[wall.update(self.screen) for wall in self.walls.sprites()]
-			[berry.update(self.screen) for berry in self.berries.sprites()]
-			[ghost.update(self.walls_collide_list) for ghost in self.ghosts.sprites()]
-			self.ghosts.draw(self.screen)
+			# Rendering
+			self.render_world()
 
-			self.player.update()
-			self.player.draw(self.screen)
-			self.display.game_over() if self.game_over else None
-			self._dashboard()
-
-			#next_state = self.get_current_state()
-
+			# Reset della posizione di Pac-Man e dei fantasmi
 			if self.reset_pos and not self.game_over:
 				[ghost.move_to_start_pos() for ghost in self.ghosts.sprites()]
 				self.player.sprite.move_to_start_pos()
 				self.player.sprite.status = "idle"
 				self.player.sprite.direction = (0, 0)
 				self.reset_pos = False
+
+	def render_world(self):
+		"""
+        Aggiorna il rendering del mondo di gioco.
+        """
+		self.screen.fill("black")  # Pulizia dello schermo
+
+		# Rendering di muri, bacche, fantasmi e Pac-Man
+		[wall.update(self.screen) for wall in self.walls.sprites()]
+		[berry.update(self.screen) for berry in self.berries.sprites()]
+		[ghost.update(self.walls_collide_list) for ghost in self.ghosts.sprites()]
+		self.ghosts.draw(self.screen)
+
+		self.player.update()
+		self.player.draw(self.screen)
+		self.display.game_over() if self.game_over else None
+		self._dashboard()
+
+		pygame.display.update()  # Aggiorna lo schermo
 
 	#GIOCO NON AUTONOMO
 	def update(self):

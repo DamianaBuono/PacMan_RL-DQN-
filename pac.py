@@ -84,8 +84,11 @@ class Pac(pygame.sprite.Sprite):
 		if self._is_collide(*self.direction):
 			self.status = "idle" if not self.immune else "power_up"
 
-	def animateRL(self, action_direction, walls_collide_list):
-
+	def animateRL(self, action_direction, walls_collide_list, berries, world):
+		"""
+        Gestisce l'animazione e il movimento continuo di Pac-Man fino a un muro,
+        verificando collisioni con bacche durante il movimento.
+        """
 		# Recupera l'animazione corrente
 		animation = self.animations[self.status]
 
@@ -96,15 +99,37 @@ class Pac(pygame.sprite.Sprite):
 		image = animation[int(self.frame_index)]
 		self.image = pygame.transform.scale(image, (CHAR_SIZE, CHAR_SIZE))
 
-		# Imposta la direzione basandoti sull'azione dell'agente RL
+		# Imposta la direzione basandoti sull'azione RL
 		self.walls_collide_list = walls_collide_list
-		self.direction = self.directions[action_direction] # Usa l'azione per determinare la direzione
+		self.direction = self.directions[action_direction]  # Usa l'azione per determinare la direzione
 
-		# Verifica collisioni e aggiorna lo stato e la posizione
-		if not self._is_collide(*self.direction):
-			self.rect.move_ip(self.direction)
-			self.status = self.status if not self.immune else "power_up"
-		else:
+		# Continua a muoversi nella direzione scelta finché non incontra un muro
+		while not self._is_collide(*self.direction):
+			self.rect.move_ip(self.direction)  # Sposta Pac-Man nella direzione scelta
+
+			# Controlla collisioni con le bacche durante il movimento
+			for berry in berries.sprites():
+				if self.rect.colliderect(berry.rect):
+					if berry.power_up:
+						self.immune_time = 150
+						world.total_reward += 50
+					else:
+						world.total_reward += 10
+					berry.kill()  # Elimina la bacca dal mondo
+
+			# Aggiorna l'immagine corrente per l'animazione
+			self.frame_index += self.animation_speed
+			if self.frame_index >= len(animation):
+				self.frame_index = 0
+			image = animation[int(self.frame_index)]
+			self.image = pygame.transform.scale(image, (CHAR_SIZE, CHAR_SIZE))
+
+			# Rendering continuo
+			pygame.time.delay(50)  # Aggiunge un ritardo per un movimento fluido
+			world.render_world()  # Aggiorna il rendering del mondo
+
+		# Se incontra un muro, cambia lo stato in "idle"
+		if self._is_collide(*self.direction):
 			self.status = "idle" if not self.immune else "power_up"
 
 	def update(self):
