@@ -2,6 +2,7 @@
 import math
 import random
 import pickle
+import json
 
 from settings import CHAR_SIZE, MAP
 
@@ -25,8 +26,28 @@ def load_q_table(filename="q_table.pkl"):
         print(f"Errore nella lettura del file {filename}. Creazione di una nuova Q-table.")
         return {}
 
-# Q-table inizialmente vuota
-q_table = load_q_table()
+def load_q_table_json(filename="q_table.json"):
+    """
+    Carica la Q-table da un file JSON in formato leggibile.
+    """
+    try:
+        with open(filename, "r") as file:
+            q_table_serializable = json.load(file)
+        # Converti le chiavi stringa in tuple
+        q_table = {eval(key): value for key, value in q_table_serializable.items()}
+        print(f"Q-table caricata da {filename}.")
+        return q_table
+    except FileNotFoundError:
+        print(f"File {filename} non trovato. Creazione di una nuova Q-table.")
+        return {}
+
+
+# Caricamento q table pkl
+#q_table = load_q_table()
+
+#caricamento q-table json
+q_table = load_q_table_json()
+
 
 
 
@@ -159,3 +180,13 @@ def save_q_table(filename="q_table.pkl"):
     with open(filename, "wb") as file:
         pickle.dump(q_table, file)
     print(f"Q-table salvata in {filename}.")
+
+def save_q_table_json(filename="q_table.json"):
+    """
+    Salva la Q-table in un file JSON in formato leggibile.
+    """
+    # Converti le chiavi tuple in stringhe
+    q_table_serializable = {str(key): value for key, value in q_table.items()}
+    with open(filename, "w") as file:
+        json.dump(q_table_serializable, file, indent=4)  # Usa `indent` per rendere il file leggibile
+    print(f"Q-table salvata in formato leggibile in {filename}.")

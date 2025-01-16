@@ -53,7 +53,10 @@ class Main:
 			print(f"Episode {episode} completed. Score: {world.player.sprite.pac_score}. Total_Reward {world.total_reward}. Reward_all_episode: {reward_all_episode}")
 
 
-		reinforcement.save_q_table()
+		#salvataggio q-table pkl
+		#reinforcement.save_q_table()
+		#salvataggio q-table JSON
+		reinforcement.save_q_table_json()
 
 
 # Blocco principale
@@ -64,6 +67,6 @@ if __name__ == "__main__":
 	mode = "training"
 
 	if mode == "training":
-		play.simulate_training(episodes=10)
+		play.simulate_training(episodes=1)
 	elif mode == "game":
 		play.main()
