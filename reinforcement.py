@@ -1,3 +1,5 @@
+
+import math
 import random
 import pickle
 
@@ -28,7 +30,23 @@ q_table = load_q_table()
 
 
 
-def choose_action(state, epsilon=0.3):
+'''def choose_action(state, epsilon=0.3):
+    """
+    Sceglie un'azione basandosi sulla politica epsilon-greedy.
+    """
+    actions = ['right', 'left', 'up', 'down']
+
+    # Controlla se lo stato è nella Q-table; se non c'è, inizializzalo
+    if state not in q_table:
+        q_table[state] = {action: 0 for action in actions}
+
+    # Politica epsilon-greedy
+    if random.random() < epsilon:
+        return random.choice(actions)  # Esplora
+    else:
+        return max(q_table[state], key=q_table[state].get)  # Sfrutta'''
+
+def choose_action_epsilon_greedy(state, epsilon=0.3):
     """
     Sceglie un'azione basandosi sulla politica epsilon-greedy.
     """
@@ -44,7 +62,43 @@ def choose_action(state, epsilon=0.3):
     else:
         return max(q_table[state], key=q_table[state].get)  # Sfrutta
 
+def choose_action_softmax(state, tau=1.0):
+    """
+    Sceglie un'azione basandosi sulla Softmax Policy.
+    :param state: Lo stato corrente
+    :param tau: Il parametro di temperatura (controlla l'esplorazione)
+    """
+    actions = ['right', 'left', 'up', 'down']
 
+    # Controlla se lo stato è nella Q-table; se non c'è, inizializzalo
+    if state not in q_table:
+        q_table[state] = {action: 0 for action in actions}
+
+    # Calcola le probabilità Softmax
+    q_values = q_table[state]
+    exp_q_values = {action: math.exp(q / tau) for action, q in q_values.items()}
+    sum_exp_q_values = sum(exp_q_values.values())
+    probabilities = {action: exp / sum_exp_q_values for action, exp in exp_q_values.items()}
+
+    # Seleziona un'azione in base alle probabilità
+    actions, probs = zip(*probabilities.items())
+    chosen_action = random.choices(actions, weights=probs, k=1)[0]
+
+    return chosen_action
+
+def choose_action(state, method="softmax", epsilon=0.3, tau=1.0):
+    """
+    Sceglie un'azione in base al metodo specificato.
+    :param method: Metodo di selezione ("epsilon-greedy" o "softmax")
+    :param epsilon: Parametro epsilon per epsilon-greedy
+    :param tau: Parametro di temperatura per Softmax
+    """
+    if method == "epsilon-greedy":
+        return choose_action_epsilon_greedy(state, epsilon)
+    elif method == "softmax":
+        return choose_action_softmax(state, tau)
+    else:
+        raise ValueError("Metodo sconosciuto per la selezione dell'azione.")
 
 def update_q(state, action, reward, next_state, alpha=0.1, gamma=0.9):
     '''
