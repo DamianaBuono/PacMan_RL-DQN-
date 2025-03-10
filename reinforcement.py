@@ -35,7 +35,7 @@ def load_q_table_json(filename="q_table.json"):
             q_table_serializable = json.load(file)
         # Converti le chiavi stringa in tuple
         q_table = {eval(key): value for key, value in q_table_serializable.items()}
-        print(f"Q-table caricata da {filename}.")
+        print(f"Q-table caricata da {filename}.json ")
         return q_table
     except FileNotFoundError:
         print(f"File {filename} non trovato. Creazione di una nuova Q-table.")
@@ -122,15 +122,19 @@ def choose_action(state, method="softmax", epsilon=0.3, tau=1.0):
         raise ValueError("Metodo sconosciuto per la selezione dell'azione.")
 
 def update_q(state, action, reward, next_state, alpha=0.1, gamma=0.9):
-    '''
-    Aggiorna la Q-table usando la formula Q-Learning.
-    '''
-
     if next_state not in q_table:
         q_table[next_state] = {a: 0 for a in ['right', 'left', 'up', 'down']}
 
+    # Trova il valore massimo della Q-table per il prossimo stato
     max_next_q = max(q_table[next_state].values())
-    q_table[state][action] += alpha * (reward + gamma * max_next_q - q_table[state][action])
+
+    # Stampa il vecchio valore e quello nuovo
+    old_q_value = q_table[state][action]
+    q_table[state][action] += alpha * (reward + gamma * max_next_q - old_q_value)
+
+    # Stampa i dettagli dell'aggiornamento della Q-table
+    print(f"action {action}: Old Q = {old_q_value}, New Q = {q_table[state][action]}")
+
 
 
 def compute_reward(state, action, world):
@@ -164,9 +168,9 @@ def compute_reward(state, action, world):
 
 
     if world.player.sprite.time_since_last_berry > 10:  # Controlla se il tempo è entro la soglia
-        print("Bacca mangiata velocemente!", reward)
+        #print("Bacca mangiata velocemente!", reward)
         reward += -10  # Ricompensa per aver mangiato entro il tempo richiesto
-        print("NON mangia la bacca in tempo: ", reward)
+        #print("NON mangia la bacca in tempo: ", reward)
         #print(f"reward: {reward}")
 
 

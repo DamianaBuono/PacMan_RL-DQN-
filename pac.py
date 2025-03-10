@@ -105,9 +105,14 @@ class Pac(pygame.sprite.Sprite):
         else:
             self.status = "idle" if not self.immune else "power_up"
 
-    def update(self):
+    '''def update(self):
         # Timer based from FPS count
         self.immune = True if self.immune_time > 0 else False
         self.immune_time -= 1 if self.immune_time > 0 else 0
 
         self.rect = self.image.get_rect(topleft=(self.rect.x, self.rect.y))
+        '''
+    def update(self):
+        print(f"🔵 Pac-Man si muove in direzione: {self.direction}")  # Debug
+        self.rect.x += self.direction[0]
+        self.rect.y += self.direction[1]

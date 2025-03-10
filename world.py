@@ -152,7 +152,7 @@ class World:
 					next_state = self.get_current_state()
 					update_q(current_state, action, reward, next_state)
 					self.total_reward += reward
-					print("-----------total reward:", self.total_reward)
+					#print("-----------total reward:", self.total_reward)
 					berry.kill()
 					self.player.sprite.time_since_last_berry = 0  # Resetta il timer
 
@@ -166,7 +166,7 @@ class World:
 						next_state = self.get_current_state()
 						update_q(current_state, action, reward, next_state)
 						self.total_reward += reward
-						print("-----------total reward:", self.total_reward)
+						#print("-----------total reward:", self.total_reward)
 						self.reset_pos = True
 						break
 					else:
@@ -175,7 +175,7 @@ class World:
 						next_state = self.get_current_state()
 						update_q(current_state, action, reward, next_state)
 						self.total_reward += reward
-						print("-----------total reward:", self.total_reward)
+						#print("-----------total reward:", self.total_reward)
 						self.player.sprite.pac_score += 100
 
 
