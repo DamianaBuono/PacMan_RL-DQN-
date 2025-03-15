@@ -83,6 +83,16 @@ class Pac(pygame.sprite.Sprite):
             self.status = "idle" if not self.immune else "power_up"
 
     def animateRL(self, action_direction, walls_collide_list):
+        # Mappa numeri a direzioni
+        action_map = {0: 'up', 1: 'down', 2: 'left', 3: 'right'}
+
+        # Verifica se l'azione passata è valida
+        if action_direction not in action_map:
+            print(f"Errore: l'azione {action_direction} non è valida")
+            action_direction = 0  # Imposta un valore di default (ad esempio 'up') in caso di errore
+
+        # Imposta la direzione basandoti sull'azione dell'agente RL
+        self.direction = self.directions[action_map[action_direction]]
 
         # Recupera l'animazione corrente
         animation = self.animations[self.status]
@@ -94,25 +104,17 @@ class Pac(pygame.sprite.Sprite):
         image = animation[int(self.frame_index)]
         self.image = pygame.transform.scale(image, (CHAR_SIZE, CHAR_SIZE))
 
-        # Imposta la direzione basandoti sull'azione dell'agente RL
-        self.walls_collide_list = walls_collide_list
-        self.direction = self.directions[action_direction]  # Usa l'azione per determinare la direzione
-
         # Verifica collisioni e aggiorna lo stato e la posizione
+        self.walls_collide_list = walls_collide_list
         if not self._is_collide(*self.direction):
             self.rect.move_ip(self.direction)
             self.status = self.status if not self.immune else "power_up"
         else:
             self.status = "idle" if not self.immune else "power_up"
 
-    '''def update(self):
+    def update(self):
         # Timer based from FPS count
         self.immune = True if self.immune_time > 0 else False
         self.immune_time -= 1 if self.immune_time > 0 else 0
 
         self.rect = self.image.get_rect(topleft=(self.rect.x, self.rect.y))
-        '''
-    def update(self):
-        print(f"🔵 Pac-Man si muove in direzione: {self.direction}")  # Debug
-        self.rect.x += self.direction[0]
-        self.rect.y += self.direction[1]

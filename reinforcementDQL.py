@@ -1,100 +1,95 @@
-import random
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import random
 from collections import deque
 
-# Hyperparametri
-GAMMA = 0.99
-LEARNING_RATE = 0.001
-MEMORY_SIZE = 50000
-BATCH_SIZE = 32
-EPSILON_START = 1.0
-EPSILON_MIN = 0.1
-EPSILON_DECAY = 0.995
-
-
-# Definizione della rete neurale per DQN
 class DQN(nn.Module):
-    def __init__(self, input_dim, output_dim):
+    def __init__(self, state_size, action_size):
         super(DQN, self).__init__()
-        self.fc1 = nn.Linear(input_dim, 128)
-        self.fc2 = nn.Linear(128, 128)
-        self.fc3 = nn.Linear(128, output_dim)
+        self.fc1 = nn.Linear(state_size, 64)  # Aumentata capacità della rete
+        self.fc2 = nn.Linear(64, 64)
+        self.fc3 = nn.Linear(64, action_size)
 
     def forward(self, x):
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
         return self.fc3(x)
 
-
-# Classe per l'agente DQN
 class DQNAgent:
-    def __init__(self, state_dim, action_dim):
-        self.state_dim = state_dim
-        self.action_dim = action_dim
-        self.epsilon = EPSILON_START
-        self.memory = deque(maxlen=MEMORY_SIZE)
+    def __init__(self, state_size, action_size):
+        self.state_size = state_size
+        self.action_size = action_size
+        self.memory = deque(maxlen=5000)  # Aumentata memoria
+        self.gamma = 0.99  # Maggiore importanza ai futuri stati
+        self.epsilon = 1.0  # Esplorazione iniziale
+        self.epsilon_min = 0.01
+        self.epsilon_decay = 0.995
+        self.learning_rate = 0.0005  # Ridotto per stabilità
+        self.batch_size = 64  # Aumentato batch per stabilità
 
-        self.model = DQN(state_dim, action_dim)
-        self.target_model = DQN(state_dim, action_dim)
-        self.optimizer = optim.Adam(self.model.parameters(), lr=LEARNING_RATE)
-        self.loss_fn = nn.MSELoss()
-        self.update_target_network()
+        self.model = DQN(state_size, action_size)
+        self.target_model = DQN(state_size, action_size)
+        self.update_target_model()
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        self.criterion = nn.MSELoss()
 
-    def update_target_network(self, tau=0.1):
-        for target_param, param in zip(self.target_model.parameters(), self.model.parameters()):
-            target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+    def update_target_model(self):
+        """Aggiorna la rete target con i pesi della rete principale"""
+        self.target_model.load_state_dict(self.model.state_dict())
 
     def remember(self, state, action, reward, next_state, done):
+        """Memorizza le transizioni"""
         self.memory.append((state, action, reward, next_state, done))
 
     def act(self, state):
-        state = torch.tensor(np.array(state), dtype=torch.float32).unsqueeze(0)
-
-        if random.random() < self.epsilon:
-            action = random.randint(0, self.action_dim - 1)
-            q_values = None
-        else:
-            with torch.no_grad():
-                q_values = self.model(state)
-            action = torch.argmax(q_values).item()
-
-        print(
-            f"Azione scelta: {action}, Q-values: {q_values.cpu().numpy() if q_values is not None else 'Random action'}")  # Debug
-        return action
+        """Decide un'azione (esplorazione o sfruttamento)"""
+        if np.random.rand() <= self.epsilon:
+            return random.randrange(self.action_size)
+        state = torch.FloatTensor(state).unsqueeze(0)
+        act_values = self.model(state)
+        return torch.argmax(act_values).item()
 
     def replay(self):
-        if len(self.memory) < BATCH_SIZE:
+        """Allenamento con replay memory"""
+        if len(self.memory) < self.batch_size:
             return
-        batch = random.sample(self.memory, BATCH_SIZE)
-        states, actions, rewards, next_states, dones = zip(*batch)
+        minibatch = random.sample(self.memory, self.batch_size)
 
-        states = torch.tensor(np.array(states), dtype=torch.float32)
-        actions = torch.LongTensor(actions)
-        rewards = torch.FloatTensor(rewards)
-        next_states = torch.FloatTensor(next_states)
-        dones = torch.FloatTensor(dones)
+        states, targets = [], []
 
-        q_values = self.model(states).gather(1, actions.unsqueeze(1)).squeeze(1)
-        next_q_values = self.target_model(next_states).max(1)[0].detach()
-        target_q_values = rewards + (1 - dones) * GAMMA * next_q_values
+        for state, action, reward, next_state, done in minibatch:
+            state = torch.FloatTensor(state)
+            next_state = torch.FloatTensor(next_state)
+            target = reward
 
-        loss = self.loss_fn(q_values, target_q_values)
+            if not done:
+                target += self.gamma * torch.max(self.target_model(next_state)).item()
+
+            # Inizializza target_f come un array di dimensione (action_size)
+            target_f = self.model(state).detach().numpy()
+            target_f = target_f.flatten()  # Assicurati che sia un array 1D
+
+            # Aggiorna solo l'azione scelta con il valore target
+            target_f[action] = target
+
+            # Aggiungi il target aggiornato alle liste
+            states.append(state.numpy())
+            targets.append(target_f)
+
+        # Conversione a tensore
+        states = torch.FloatTensor(np.array(states))
+        targets = torch.FloatTensor(np.array(targets))
+
+        # Ottimizzazione
         self.optimizer.zero_grad()
+        predictions = self.model(states)
+        loss = self.criterion(predictions, targets)
         loss.backward()
         self.optimizer.step()
 
-    def update_epsilon(self):
-        self.epsilon = max(EPSILON_MIN, self.epsilon * EPSILON_DECAY)
+        # Decadimento dell'epsilon
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
 
-
-#def save_model(self, filename="pacman_dqn.pth"):
-    #torch.save(self.model.state_dict(), filename)
-     #print(f"Modello salvato in {filename}")
-
-#def load_model(self, filename="pacman_dqn.pth"):
-    #self.model.load_state_dict(torch.load(filename))
-    #self.model.eval()
-    #print(f"Modello caricato da {filename}")
