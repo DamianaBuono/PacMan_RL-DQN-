@@ -1,9 +1,9 @@
+import random
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import random
-from collections import deque
 
 # Imposta il dispositivo (CPU o GPU)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -22,11 +22,51 @@ class DQN(nn.Module):
         return self.fc3(x)
 
 
+class PrioritizedReplayBuffer:
+    """Replay buffer con Prioritized Experience Replay (PER)"""
+
+    def __init__(self, capacity, alpha=0.6):
+        self.capacity = capacity
+        self.memory = []
+        self.priorities = []
+        self.alpha = alpha  # Fattore di priorità
+
+    def add(self, state, action, reward, next_state, done, error):
+        """Aggiunge un'esperienza con una priorità basata sull'errore TD"""
+        priority = (error + 1e-5) ** self.alpha  # Evita priorità zero
+        if len(self.memory) < self.capacity:
+            self.memory.append((state, action, reward, next_state, done))
+            self.priorities.append(priority)
+        else:
+            self.memory.pop(0)
+            self.priorities.pop(0)
+            self.memory.append((state, action, reward, next_state, done))
+            self.priorities.append(priority)
+
+    def sample(self, batch_size, beta=0.4):
+        """Seleziona un minibatch in base alle priorità"""
+        priorities = np.array(self.priorities)
+        probs = priorities / priorities.sum()  # Probabilità normalizzate
+        indices = np.random.choice(len(self.memory), batch_size, p=probs)
+        experiences = [self.memory[i] for i in indices]
+
+        # Calcolo dei pesi di importanza per correggere il bias di priorità
+        weights = (len(self.memory) * probs[indices]) ** (-beta)
+        weights /= weights.max()  # Normalizzazione
+
+        return experiences, torch.FloatTensor(weights).to(device), indices
+
+    def update_priorities(self, indices, errors):
+        """Aggiorna le priorità delle esperienze nel buffer"""
+        for i, error in zip(indices, errors):
+            self.priorities[i] = (error + 1e-5) ** self.alpha
+
+
 class DQNAgent:
     def __init__(self, state_size, action_size):
         self.state_size = state_size
         self.action_size = action_size
-        self.memory = deque(maxlen=5000)
+        self.memory = PrioritizedReplayBuffer(capacity=5000)
         self.gamma = 0.99
         self.epsilon = 1.0
         self.epsilon_min = 0.01
@@ -46,8 +86,24 @@ class DQNAgent:
         self.target_model.load_state_dict(self.model.state_dict())
 
     def remember(self, state, action, reward, next_state, done):
-        """Memorizza le transizioni"""
-        self.memory.append((state, action, reward, next_state, done))
+        """Memorizza le transizioni con priorità basata sull'errore TD"""
+        state_t = torch.FloatTensor(state).to(device)
+        next_state_t = torch.FloatTensor(next_state).to(device)
+
+        # Calcola il valore Q target per ottenere l'errore TD
+        target = reward + (1 - done) * self.gamma * torch.max(self.target_model(next_state_t)).item()
+
+        # Ottieni la previsione dalla rete per tutte le azioni
+        prediction = self.model(state_t)
+
+        # Ottieni il valore per l'azione specifica
+        prediction_value = prediction[0][action].item()  # prediction[0] perché `state_t` è un batch di dimensione 1
+
+        error = abs(target - prediction_value)  # Errore assoluto come misura di priorità
+
+        # Aggiungi al buffer con priorità
+        self.memory.add(state, action, reward, next_state, done, error)
+
 
     def act(self, state):
         """Decide un'azione (esplorazione o sfruttamento)"""
@@ -59,42 +115,53 @@ class DQNAgent:
         return torch.argmax(act_values).item()
 
     def replay(self):
-        """Allenamento con replay memory"""
-        if len(self.memory) < self.batch_size:
+        """Allenamento con Prioritized Experience Replay"""
+        if len(self.memory.memory) < self.batch_size:
             return
-        minibatch = random.sample(self.memory, self.batch_size)
 
-        states, targets = [], []
+        beta = 0.4  # Fattore di correzione del bias di priorità
+        minibatch, weights, indices = self.memory.sample(self.batch_size, beta)
 
-        for state, action, reward, next_state, done in minibatch:
-            state = torch.FloatTensor(state).to(device)
-            next_state = torch.FloatTensor(next_state).to(device)
+        states, targets, errors = [], [], []
+
+        for i, (state, action, reward, next_state, done) in enumerate(minibatch):
+            state_t = torch.FloatTensor(state).to(device)
+            next_state_t = torch.FloatTensor(next_state).to(device)
+
             target = reward
-
             if not done:
-                target += self.gamma * torch.max(self.target_model(next_state)).item()
+                target += self.gamma * torch.max(self.target_model(next_state_t)).item()
 
-            # Ottenere i valori predetti e assicurarsi della forma corretta
-            target_f = self.model(state).detach().cpu().numpy().squeeze()
+            # Predizione per tutte le azioni
+            target_f = self.model(state_t).detach().cpu().numpy().squeeze()
 
-            # Controllo di debug per garantire che target_f abbia la giusta dimensione
-            if target_f.shape[0] != self.action_size:
-                print(f"Errore: target_f ha dimensione {target_f.shape}, dovrebbe essere ({self.action_size},)")
-                continue  # Salta l'iterazione se la dimensione non è corretta
+            # Calcola l'errore TD
+            error = abs(target - target_f[action])  # Ricalcola errore TD
+            errors.append(error)
 
-            target_f[action] = target  # Aggiorna solo il valore relativo all'azione scelta
-
-            states.append(state.cpu().numpy())
+            # Aggiorna solo l'azione selezionata
+            target_f[action] = target
+            states.append(state_t.cpu().numpy())
             targets.append(target_f)
 
         states = torch.FloatTensor(np.array(states)).to(device)
         targets = torch.FloatTensor(np.array(targets)).to(device)
 
         self.optimizer.zero_grad()
-        predictions = self.model(states).squeeze(1)
-        loss = self.criterion(predictions, targets)
+        predictions = self.model(states)
+
+        # Assicurati che predictions e targets abbiano la stessa forma
+        predictions = predictions.view(-1, self.action_size)  # Ridimensiona predictions se necessario
+        targets = targets.view(-1, self.action_size)  # Assicurati che target abbia la forma corretta
+
+        # Calcola la perdita pesata con le priorità (Importanza IS)
+        loss = (weights * self.criterion(predictions, targets)).mean()
         loss.backward()
         self.optimizer.step()
 
+        # Aggiorna le priorità nel buffer
+        self.memory.update_priorities(indices, errors)
+
+        # Aggiornamento del tasso di esplorazione (epsilon)
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay

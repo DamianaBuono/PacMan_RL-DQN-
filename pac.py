@@ -33,6 +33,8 @@ class Pac(pygame.sprite.Sprite):
         self.life = 3
         self.pac_score = 0
 
+        self.last_position = (self.rect.x, self.rect.y)
+
     # gets all the image needed for animating specific player action
     def _import_character_assets(self):
         character_path = "assets/pac/"
@@ -111,6 +113,8 @@ class Pac(pygame.sprite.Sprite):
             self.status = self.status if not self.immune else "power_up"
         else:
             self.status = "idle" if not self.immune else "power_up"
+
+        self.last_position = (self.rect.x, self.rect.y)
 
     def update(self):
         # Timer based from FPS count

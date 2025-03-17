@@ -1,6 +1,7 @@
 import pygame
 import time
 import numpy as np
+import torch
 from settings import HEIGHT, WIDTH, NAV_HEIGHT, CHAR_SIZE, MAP, PLAYER_SPEED
 from pac import Pac
 from cell import Cell
@@ -28,6 +29,9 @@ class World:
         self.player_score = 0
         self.game_level = 1
         self.total_reward = 0
+
+        self.last_position = None
+        self.combo_counter = 0
 
         self._generate_world()
 
@@ -72,7 +76,11 @@ class World:
         self.player.sprite.direction = (0, 0)
         self.player.sprite.status = "idle"
 
+        self.combo_counter = 0  # Reset della combo
+        self.last_position = None  # Reset della posizione precedente
+
         self.generate_new_level()
+
 
     def _dashboard(self):
         """Mostra le informazioni di gioco sulla barra di navigazione"""
@@ -123,30 +131,55 @@ class World:
         """Calcola la ricompensa basata sugli eventi di gioco"""
         reward = 0
 
+        # Penalità per movimenti ripetitivi o inutili
+        if self.player.sprite.last_position == self.player.sprite.rect.topleft:
+            reward -= 5  # Penalità per il looping
+            print("__Penalità per movimenti ripetitivi o inutili__")
+        else:
+            reward += 1  # Piccola ricompensa per il movimento sicuro
+            print("__Piccola ricompensa per il movimento sicuro__")
+        self.player.sprite.last_position = self.player.sprite.rect.topleft
+
         # Ricompensa per la raccolta delle bacche
         for berry in self.berries.sprites():
             if self.player.sprite.rect.colliderect(berry.rect):
                 reward += 50 if berry.power_up else 10
                 berry.kill()
 
-        # Ricompensa per l'interazione con i fantasmi
+        # Ricompensa per l’interazione con i fantasmi
         for ghost in self.ghosts.sprites():
+            distance = self.get_distance(self.player.sprite.rect.center, ghost.rect.center)
+
             if self.player.sprite.rect.colliderect(ghost.rect):
                 if not self.player.sprite.immune:
-                    reward -= 30  # Penale per la collisione con un fantasma
+                    reward -= 50  # Penalità per la collisione con un fantasma
                 else:
                     ghost.move_to_start_pos()
-                    reward += 100  # Ricompensa per aver mangiato un fantasma mentre è immune
+                    reward += 100  # Ricompensa per aver mangiato un fantasma
+                    self.player.sprite.combo_counter += 1
+                    reward += 50 * self.player.sprite.combo_counter  # Bonus progressivo per combo
 
-        # Ricompensa per il completamento di livello (quando tutte le bacche sono state mangiate)
+            # Ricompensa per evitare i fantasmi
+            elif distance < 50:  # Se il fantasma è vicino
+                reward += 2  # Ricompensa per sopravvivere sotto pressione
+               # print("Se il fantasma è vicino a distanza 50")
+            elif distance > 100:  # Se il fantasma è lontano
+                reward += 1  # Ricompensa per la sicurezza
+               # print("Se il fantasma è vicino a distanza 100")
+
+        # Ricompensa per il completamento del livello
         if not self.berries and self.player.sprite.life > 0:
-            reward += 50
+            reward += 100  # Aumentata per incentivare il completamento
 
-        # Penalità se il gioco è finito
+        # Penalità per il game over
         if self.game_over:
-            reward -= 50
+            reward -= 100
 
         return reward
+
+    def get_distance(self, pos1, pos2):
+        """Calcola la distanza euclidea tra due punti"""
+        return ((pos1[0] - pos2[0]) ** 2 + (pos1[1] - pos2[1]) ** 2) ** 0.5
 
     def updateRL(self):
         """Aggiorna il gioco durante la fase di reinforcement learning"""
@@ -166,9 +199,21 @@ class World:
                         self.player.sprite.pac_score += 50
                     else:
                         self.player.sprite.pac_score += 10
+
                     reward = self.get_reward()
                     next_state = self.get_current_state()
-                    self.agent.remember(current_state, action, reward, next_state, self.game_over)
+                    done = self.game_over
+
+                    # Calcola l'errore TD per il PER
+                    state_t = torch.FloatTensor(current_state)
+                    target = reward + (1 - done) * 0.99 * torch.max(
+                        self.agent.target_model(torch.FloatTensor(next_state))).item()
+                    prediction = self.agent.model(state_t)[action].item()
+                    error = abs(target - prediction)  # Errore assoluto
+
+                    # Memorizza l'esperienza con priorità
+                    self.agent.memory.add(current_state, action, reward, next_state, done, error)
+
                     self.agent.replay()
                     self.total_reward += reward
                     print("-----------total reward:", self.total_reward)
@@ -176,13 +221,27 @@ class World:
 
             for ghost in self.ghosts.sprites():
                 if self.player.sprite.rect.colliderect(ghost.rect):
-                    print("---Vite di Pacman----", self.player.sprite.life)
+                    #print("---Vite di Pacman----", self.player.sprite.life)
                     if not self.player.sprite.immune:
                         self.player.sprite.life -= 1
-                        print("---nuove Vite di Pacman----", self.player.sprite.life)
+                        self.combo_counter = 0  # Reset della combo
+                        self.last_position = None
+                        #print("---nuove Vite di Pacman----", self.player.sprite.life)
+
                         reward = self.get_reward()
                         next_state = self.get_current_state()
-                        self.agent.remember(current_state, action, reward, next_state, self.game_over)
+                        done = self.game_over
+
+                        # Calcola l'errore TD per il PER
+                        state_t = torch.FloatTensor(current_state)
+                        target = reward + (1 - done) * 0.99 * torch.max(
+                            self.agent.target_model(torch.FloatTensor(next_state))).item()
+                        prediction = self.agent.model(state_t)[action].item()
+                        error = abs(target - prediction)
+
+                        # Memorizza l'esperienza con priorità
+                        self.agent.memory.add(current_state, action, reward, next_state, done, error)
+
                         self.agent.replay()
                         self.total_reward += reward
                         print("-----------total reward:", self.total_reward)
@@ -195,9 +254,21 @@ class World:
                         break
                     else:
                         ghost.move_to_start_pos()
+
                         reward = self.get_reward()
                         next_state = self.get_current_state()
-                        self.agent.remember(current_state, action, reward, next_state, self.game_over)
+                        done = self.game_over
+
+                        # Calcola l'errore TD per il PER
+                        state_t = torch.FloatTensor(current_state)
+                        target = reward + (1 - done) * 0.99 * torch.max(
+                            self.agent.target_model(torch.FloatTensor(next_state))).item()
+                        prediction = self.agent.model(state_t)[action].item()
+                        error = abs(target - prediction)
+
+                        # Memorizza l'esperienza con priorità
+                        self.agent.memory.add(current_state, action, reward, next_state, done, error)
+
                         self.agent.replay()
                         self.total_reward += reward
                         print("-----------total reward:", self.total_reward)
