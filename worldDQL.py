@@ -133,11 +133,11 @@ class World:
 
         # Penalità per movimenti ripetitivi o inutili
         if self.player.sprite.last_position == self.player.sprite.rect.topleft:
-            reward -= 5  # Penalità per il looping
-            print("__Penalità per movimenti ripetitivi o inutili__")
+            reward -= 2  # Penalità per il looping
+           # print("__Penalità per movimenti ripetitivi o inutili__")
         else:
             reward += 1  # Piccola ricompensa per il movimento sicuro
-            print("__Piccola ricompensa per il movimento sicuro__")
+            #print("__Piccola ricompensa per il movimento sicuro__")
         self.player.sprite.last_position = self.player.sprite.rect.topleft
 
         # Ricompensa per la raccolta delle bacche

@@ -80,6 +80,6 @@ if __name__ == "__main__":
 	mode = "training"
 
 	if mode == "training":
-		play.simulate_training(episodes=1)
+		play.simulate_training(episodes=10)
 	elif mode == "game":
 		play.main()

@@ -34,6 +34,7 @@ class Pac(pygame.sprite.Sprite):
         self.pac_score = 0
 
         self.last_position = (self.rect.x, self.rect.y)
+        self.last_direction = None
 
     # gets all the image needed for animating specific player action
     def _import_character_assets(self):
@@ -59,6 +60,7 @@ class Pac(pygame.sprite.Sprite):
     def move_to_start_pos(self):
         self.rect.x = self.abs_x
         self.rect.y = self.abs_y
+        self.last_direction = None
 
     # update with sprite/sheets
     def animate(self, pressed_key, walls_collide_list):
@@ -101,9 +103,9 @@ class Pac(pygame.sprite.Sprite):
 
         # Ciclo sull'indice dei frame
         self.frame_index += self.animation_speed
-        if self.frame_index >= len(animation):
+        if self.frame_index >= len(self.animations[self.status]):
             self.frame_index = 0
-        image = animation[int(self.frame_index)]
+        image = self.animations[self.status][int(self.frame_index)]
         self.image = pygame.transform.scale(image, (CHAR_SIZE, CHAR_SIZE))
 
         # Verifica collisioni e aggiorna lo stato e la posizione
