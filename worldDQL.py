@@ -118,14 +118,21 @@ class World:
         return np.array([pac_pos[0], pac_pos[1], pac_direction[0], pac_direction[1], len(ghosts), len(berries)])
 
     def apply_action(self, action):
-        """Applica l'azione scelta dall'agente"""
         actions_map = {
-            0: (0, -PLAYER_SPEED),
-            1: (0, PLAYER_SPEED),
-            2: (-PLAYER_SPEED, 0),
-            3: (PLAYER_SPEED, 0)
+            0: (0, -PLAYER_SPEED),  # Su
+            1: (0, PLAYER_SPEED),  # Giù
+            2: (-PLAYER_SPEED, 0),  # Sinistra
+            3: (PLAYER_SPEED, 0)  # Destra
         }
-        self.player.sprite.direction = actions_map[action]
+
+        new_direction = actions_map[action]
+        next_position = self.player.sprite.rect.move(new_direction)
+
+        # Controlla se la prossima posizione è in un muro
+        if not any(next_position.colliderect(wall.rect) for wall in self.walls.sprites()):
+            self.player.sprite.direction = new_direction
+        else:
+            print("Azione annullata: Pac-Man colpirebbe un muro!")
 
     def get_reward(self):
         """Calcola la ricompensa basata sugli eventi di gioco"""

@@ -4,6 +4,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
+
 
 # Imposta il dispositivo (CPU o GPU)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -68,12 +70,13 @@ class DQNAgent:
         self.action_size = action_size
         self.memory = PrioritizedReplayBuffer(capacity=5000)
         self.gamma = 0.99
-        self.epsilon = 1.0
-        self.epsilon_min = 0.01
-        self.epsilon_decay = 0.995
         self.learning_rate = 0.0005
         self.batch_size = 64
         self.target_update_freq = 10  # Aggiornamento ogni 10 episodi
+
+        self.tau = 1.0
+        self.tau_min = 0.5
+        self.tau_decay = 0.999
 
         self.model = DQN(state_size, action_size).to(device)
         self.target_model = DQN(state_size, action_size).to(device)
@@ -104,15 +107,22 @@ class DQNAgent:
         # Aggiungi al buffer con priorità
         self.memory.add(state, action, reward, next_state, done, error)
 
-
     def act(self, state):
-        """Decide un'azione (esplorazione o sfruttamento)"""
-        if np.random.rand() <= self.epsilon:
-            return random.randrange(self.action_size)
+        """Seleziona un'azione usando Boltzmann Exploration"""
         state = torch.FloatTensor(state).unsqueeze(0).to(device)
         with torch.no_grad():
-            act_values = self.model(state)
-        return torch.argmax(act_values).item()
+            q_values = self.model(state)
+
+        # Softmax sulle Q-values per ottenere probabilità
+        probabilities = F.softmax(q_values / max(self.tau, 1e-2), dim=1).cpu().numpy().squeeze()
+
+        # Normalizzazione per evitare errori numerici
+        probabilities /= probabilities.sum()
+
+        # Selezione dell'azione in base alle probabilità
+        action = np.random.choice(self.action_size, p=probabilities)
+
+        return action
 
     def replay(self):
         """Allenamento con Prioritized Experience Replay"""
@@ -162,6 +172,6 @@ class DQNAgent:
         # Aggiorna le priorità nel buffer
         self.memory.update_priorities(indices, errors)
 
-        # Aggiornamento del tasso di esplorazione (epsilon)
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
+        # Decadimento della temperatura tau
+        if self.tau > self.tau_min:
+            self.tau *= self.tau_decay
