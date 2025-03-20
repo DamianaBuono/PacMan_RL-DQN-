@@ -1,13 +1,10 @@
 import random
-
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 
-# Imposta il dispositivo (CPU o GPU)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 
 class DQN(nn.Module):
     def __init__(self, state_size, action_size):
@@ -21,19 +18,15 @@ class DQN(nn.Module):
         x = torch.relu(self.fc2(x))
         return self.fc3(x)
 
-
 class PrioritizedReplayBuffer:
-    """Replay buffer con Prioritized Experience Replay (PER)"""
-
     def __init__(self, capacity, alpha=0.6):
         self.capacity = capacity
         self.memory = []
         self.priorities = []
-        self.alpha = alpha  # Fattore di priorità
+        self.alpha = alpha
 
     def add(self, state, action, reward, next_state, done, error):
-        """Aggiunge un'esperienza con una priorità basata sull'errore TD"""
-        priority = (error + 1e-5) ** self.alpha  # Evita priorità zero
+        priority = (error + 1e-5) ** self.alpha
         if len(self.memory) < self.capacity:
             self.memory.append((state, action, reward, next_state, done))
             self.priorities.append(priority)
@@ -44,20 +37,17 @@ class PrioritizedReplayBuffer:
             self.priorities.append(priority)
 
     def sample(self, batch_size, beta=0.4):
-        """Seleziona un minibatch in base alle priorità"""
         priorities = np.array(self.priorities)
-        probs = priorities / priorities.sum()  # Probabilità normalizzate
+        probs = priorities / priorities.sum()
         indices = np.random.choice(len(self.memory), batch_size, p=probs)
         experiences = [self.memory[i] for i in indices]
 
-        # Calcolo dei pesi di importanza per correggere il bias di priorità
         weights = (len(self.memory) * probs[indices]) ** (-beta)
-        weights /= weights.max()  # Normalizzazione
+        weights /= weights.max()
 
         return experiences, torch.FloatTensor(weights).to(device), indices
 
     def update_priorities(self, indices, errors):
-        """Aggiorna le priorità delle esperienze nel buffer"""
         for i, error in zip(indices, errors):
             self.priorities[i] = (error + 1e-5) ** self.alpha
 
@@ -73,8 +63,9 @@ class DQNAgent:
         self.epsilon_decay = 0.995
         self.learning_rate = 0.0005
         self.batch_size = 64
-        self.target_update_freq = 10  # Aggiornamento ogni 10 episodi
-
+        self.target_update_freq = 10
+        self.stall_counter = 0
+        self.stall_threshold = 50
         self.model = DQN(state_size, action_size).to(device)
         self.target_model = DQN(state_size, action_size).to(device)
         self.update_target_model()
@@ -82,31 +73,18 @@ class DQNAgent:
         self.criterion = nn.MSELoss()
 
     def update_target_model(self):
-        """Aggiorna la rete target con i pesi della rete principale"""
         self.target_model.load_state_dict(self.model.state_dict())
 
     def remember(self, state, action, reward, next_state, done):
-        """Memorizza le transizioni con priorità basata sull'errore TD"""
         state_t = torch.FloatTensor(state).to(device)
         next_state_t = torch.FloatTensor(next_state).to(device)
-
-        # Calcola il valore Q target per ottenere l'errore TD
         target = reward + (1 - done) * self.gamma * torch.max(self.target_model(next_state_t)).item()
-
-        # Ottieni la previsione dalla rete per tutte le azioni
         prediction = self.model(state_t)
-
-        # Ottieni il valore per l'azione specifica
-        prediction_value = prediction[0][action].item()  # prediction[0] perché `state_t` è un batch di dimensione 1
-
-        error = abs(target - prediction_value)  # Errore assoluto come misura di priorità
-
-        # Aggiungi al buffer con priorità
+        prediction_value = prediction[0][action].item()
+        error = abs(target - prediction_value)
         self.memory.add(state, action, reward, next_state, done, error)
 
-
     def act(self, state):
-        """Decide un'azione (esplorazione o sfruttamento)"""
         if np.random.rand() <= self.epsilon:
             return random.randrange(self.action_size)
         state = torch.FloatTensor(state).unsqueeze(0).to(device)
@@ -115,31 +93,24 @@ class DQNAgent:
         return torch.argmax(act_values).item()
 
     def replay(self):
-        """Allenamento con Prioritized Experience Replay"""
         if len(self.memory.memory) < self.batch_size:
-            return
+            return 0  # Restituisce zero se non ci sono abbastanza esperienze
 
-        beta = 0.4  # Fattore di correzione del bias di priorità
+        beta = 0.4
         minibatch, weights, indices = self.memory.sample(self.batch_size, beta)
-
         states, targets, errors = [], [], []
 
         for i, (state, action, reward, next_state, done) in enumerate(minibatch):
             state_t = torch.FloatTensor(state).to(device)
             next_state_t = torch.FloatTensor(next_state).to(device)
-
             target = reward
             if not done:
                 target += self.gamma * torch.max(self.target_model(next_state_t)).item()
 
-            # Predizione per tutte le azioni
             target_f = self.model(state_t).detach().cpu().numpy().squeeze()
-
-            # Calcola l'errore TD
-            error = abs(target - target_f[action])  # Ricalcola errore TD
+            error = abs(target - target_f[action])
             errors.append(error)
 
-            # Aggiorna solo l'azione selezionata
             target_f[action] = target
             states.append(state_t.cpu().numpy())
             targets.append(target_f)
@@ -149,19 +120,63 @@ class DQNAgent:
 
         self.optimizer.zero_grad()
         predictions = self.model(states)
-
-        # Assicurati che predictions e targets abbiano la stessa forma
-        predictions = predictions.view(-1, self.action_size)  # Ridimensiona predictions se necessario
-        targets = targets.view(-1, self.action_size)  # Assicurati che target abbia la forma corretta
-
-        # Calcola la perdita pesata con le priorità (Importanza IS)
+        predictions = predictions.view(-1, self.action_size)
+        targets = targets.view(-1, self.action_size)
         loss = (weights * self.criterion(predictions, targets)).mean()
         loss.backward()
         self.optimizer.step()
 
-        # Aggiorna le priorità nel buffer
         self.memory.update_priorities(indices, errors)
 
-        # Aggiornamento del tasso di esplorazione (epsilon)
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
+
+        return loss.item()  # Ritorna il valore della loss
+
+
+    def calculate_reward(self, game):
+        reward = 0
+
+        if game.player.sprite.last_position == game.player.sprite.rect.topleft:
+            self.stall_counter += 1
+        else:
+            self.stall_counter = 0
+
+        if self.stall_counter >= self.stall_threshold:
+            reward -= 10  # Penalità per stallo
+
+        if game.player.sprite.last_position == game.player.sprite.rect.topleft:
+            reward -= 2  # Penalità per il looping
+        else:
+            reward += 1  # Ricompensa per il movimento sicuro
+        game.player.sprite.last_position = game.player.sprite.rect.topleft
+
+        for berry in game.berries.sprites():
+            if game.player.sprite.rect.colliderect(berry.rect):
+                reward += 50 if berry.power_up else 10
+                berry.kill()
+
+        for ghost in game.ghosts.sprites():
+            distance = game.get_distance(game.player.sprite.rect.center, ghost.rect.center)
+
+            if game.player.sprite.rect.colliderect(ghost.rect):
+                if not game.player.sprite.immune:
+                    reward -= 50
+                else:
+                    ghost.move_to_start_pos()
+                    reward += 100
+                    game.player.sprite.combo_counter += 1
+                    reward += 50 * game.player.sprite.combo_counter
+
+            elif distance < 50:
+                reward += 2
+            elif distance > 100:
+                reward += 1
+
+        if not game.berries and game.player.sprite.life > 0:
+            reward += 100
+
+        if game.game_over:
+            reward -= 100
+
+        return reward
