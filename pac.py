@@ -32,6 +32,8 @@ class Pac(pygame.sprite.Sprite):
         self.status = "idle"
         self.life = 3
         self.pac_score = 0
+        self.n_bacche = 0
+        self.combo_counter = 0
 
         self.last_position = (self.rect.x, self.rect.y)
         self.last_direction = None
