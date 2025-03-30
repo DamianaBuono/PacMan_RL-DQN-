@@ -28,7 +28,6 @@ class World:
         self.player_score = 0
         self.game_level = 1
         self.total_reward = 0
-
         self.last_position = None
         self.combo_counter = 0
 
@@ -146,7 +145,6 @@ class World:
         return ((pos1[0] - pos2[0]) ** 2 + (pos1[1] - pos2[1]) ** 2) ** 0.5
 
     def updateRL(self):
-
         if not self.game_over:
             self.screen.fill("black")
 
@@ -161,17 +159,21 @@ class World:
             elif self.player.sprite.rect.left >= WIDTH:
                 self.player.sprite.rect.x = 0
 
-            # Debug: stampa il valore delle vite prima del controllo
-
+            # Controllo delle condizioni terminali
             if self.player.sprite.life <= 0:
-                print("Controllo Game Over - Pac-Man ha finito le vite!")
                 self.game_over = True
-                print("Game Over: Pac-Man ha esaurito le vite!")
+                #print("Game Over: Pac-Man ha esaurito le vite!")
             elif self.player.sprite.n_bacche >= self.agent.target_berries:
                 self.game_over = True
-                print(f"Game Over: Pac-Man ha raccolto {self.agent.target_berries} bacche!")
+               # print(f"Game Over: Pac-Man ha raccolto {self.agent.target_berries} bacche!")
 
+            # Calcolo la ricompensa per questo step
             reward = self.agent.calculate_reward(self)
+            # Se l'episodio è finito, aggiungo la ricompensa finale
+            if self.game_over:
+                final_bonus = self.agent.finalize_episode(self.player.sprite)
+                reward += final_bonus
+
             next_state = self.get_current_state()
             done = self.game_over
 
@@ -187,14 +189,10 @@ class World:
                         self.player.sprite.pac_score += 100
                     else:
                         self.player.sprite.life -= 1
-                        print(f"Vita rimanente dopo collisione con ghost: {self.player.sprite.life}")  # Debug
                         self.combo_counter = 0
                         self.last_position = None
 
-                        self.agent.replay()
-
                         if self.player.sprite.life <= 0:
-                            print("Controllo Game Over dopo collisione - Pac-Man ha finito le vite!")
                             self.game_over = True
                         else:
                             self.reset_pos = True
@@ -244,12 +242,11 @@ class World:
 
             # Debug: stampa il valore delle vite prima del controllo
             if self.player.sprite.life <= 0:
-                print("Controllo Game Over - Pac-Man ha finito le vite!")
                 self.game_over = True
-                print("Game Over: Pac-Man ha esaurito le vite!")
+                #print("Game Over: Pac-Man ha esaurito le vite!")
             elif self.player.sprite.n_bacche >= self.agent.target_berries:
                 self.game_over = True
-                print(f"Game Over: Pac-Man ha raccolto {self.agent.target_berries} bacche!")
+                #print(f"Game Over: Pac-Man ha raccolto {self.agent.target_berries} bacche!")
 
             reward = self.agent.calculate_reward(self)
 
@@ -260,7 +257,7 @@ class World:
                     if not self.player.sprite.immune:
                         time.sleep(2)
                         self.player.sprite.life -= 1
-                        print(f"Vita rimanente dopo collisione (update): {self.player.sprite.life}")  # Debug
+                        #print(f"Vita rimanente dopo collisione (update): {self.player.sprite.life}")  # Debug
                         self.reset_pos = True
                         break
                     else:
@@ -293,5 +290,3 @@ class World:
             if pressed_key[pygame.K_r]:
                 self.game_over = False
                 self.restart_level()
-
-

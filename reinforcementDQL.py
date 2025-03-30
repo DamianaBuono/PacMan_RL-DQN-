@@ -7,9 +7,8 @@ import torch.optim as optim
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-
 class PrioritizedReplayBuffer:
-    def __init__(self, capacity, alpha=0.6):
+    def __init__(self, capacity, alpha=0.4):
         self.capacity = capacity
         self.alpha = alpha  # quanto pesare le priorità
         self.buffer = []
@@ -97,19 +96,37 @@ class NoisyLinear(nn.Module):
         return nn.functional.linear(input, weight, bias)
 
 
-class DQN(nn.Module):
+# Nuova rete Dueling DQN che utilizza NoisyNet
+class DuelingDQN(nn.Module):
     def __init__(self, state_size, action_size):
-        super(DQN, self).__init__()
+        super(DuelingDQN, self).__init__()
+        # Layer condivisi per estrazione delle features
         self.fc1 = NoisyLinear(state_size, 128)
         self.fc2 = NoisyLinear(128, 128)
-        self.fc3 = NoisyLinear(128, 64)
-        self.fc4 = NoisyLinear(64, action_size)
+
+        # Stream per il valore dello stato V(s)
+        self.fc_value = NoisyLinear(128, 64)
+        self.value = NoisyLinear(64, 1)
+
+        # Stream per l'advantage A(s,a)
+        self.fc_advantage = NoisyLinear(128, 64)
+        self.advantage = NoisyLinear(64, action_size)
 
     def forward(self, x):
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
-        x = torch.relu(self.fc3(x))
-        return self.fc4(x)
+
+        # Calcolo del valore
+        value = torch.relu(self.fc_value(x))
+        value = self.value(value)  # Dimensione: [batch, 1]
+
+        # Calcolo dell'advantage
+        advantage = torch.relu(self.fc_advantage(x))
+        advantage = self.advantage(advantage)  # Dimensione: [batch, action_size]
+
+        # Combinazione: Q(s,a) = V(s) + (A(s,a) - media(A(s,·)))
+        q = value + (advantage - advantage.mean(dim=1, keepdim=True))
+        return q
 
     def reset_noise(self):
         for m in self.modules():
@@ -117,44 +134,52 @@ class DQN(nn.Module):
                 m.reset_noise()
 
 
+# Classe agente aggiornata per usare la rete dueling
 class DQNAgent:
     def __init__(self, state_size, action_size):
-        self.bonus_applied = None
+        self.bonus_applied = False
         self.state_size = state_size
         self.action_size = action_size
 
         # Parametri dell'algoritmo
-        self.gamma = 0.99
-        self.learning_rate = 0.001  # <-- Learning rate aggiornato
-        self.batch_size = 128       # <-- Batch size maggiore
+        self.gamma = 0.5
+        self.learning_rate = 0.0001  # <-- Learning rate aggiornato
+        self.batch_size = 64
         self.target_update_freq = 10
 
         self.stall_counter = 0
-        self.stall_threshold = 20
+        self.stall_threshold = 250
+
+        self.replay_calls = 0
 
         self.double_dqn = True
 
-        # Costruzione dei modelli (rete online e target) usando NoisyNet
-        self.model = DQN(state_size, action_size).to(device)
-        self.target_model = DQN(state_size, action_size).to(device)
+        # DuelingDQN
+        self.model = DuelingDQN(state_size, action_size).to(device)
+        self.target_model = DuelingDQN(state_size, action_size).to(device)
         self.update_target_model()  # aggiornamento soft iniziale
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
         self.criterion = nn.SmoothL1Loss()
 
-        # Sostituisco il deque con il Prioritized Replay Buffer
+        # Uso il Prioritized Replay Buffer
         self.memory = PrioritizedReplayBuffer(capacity=10000, alpha=0.6)
         self.step = 0
 
-        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=5000, gamma=0.9)
+        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=50000, gamma=0.5)
 
-        self.target_berries = 1000  # bacche necessarie per completare l'episodio
+        self.target_berries = 30  # bacche necessarie per completare l'episodio
         self.collected_berries = 0
+
+        self.visited_positions = set()
 
         # Parametri PER
         self.beta_start = 0.4
         self.beta_frames = 100000  # numero di frame per annealing di beta
 
-    def update_target_model(self, tau=0.01):
+        # Penalità per ogni step (reward shaping)
+        self.step_penalty = 1
+
+    def update_target_model(self, tau=0.001):
         for target_param, local_param in zip(self.target_model.parameters(), self.model.parameters()):
             target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
 
@@ -173,6 +198,8 @@ class DQNAgent:
         return action
 
     def replay(self):
+
+
         if len(self.memory) < self.batch_size:
             return 0  # non ci sono abbastanza esperienze
 
@@ -181,10 +208,10 @@ class DQNAgent:
 
         minibatch, indices, weights = self.memory.sample(self.batch_size, beta=beta)
 
-        states = torch.FloatTensor(np.array([m[0] for m in minibatch])).to(device).squeeze(1)
+        states = torch.FloatTensor(np.stack([np.squeeze(m[0]) for m in minibatch])).to(device)
         actions = torch.LongTensor(np.array([m[1] for m in minibatch])).to(device)
         rewards = torch.FloatTensor(np.array([m[2] for m in minibatch])).to(device)
-        next_states = torch.FloatTensor(np.array([m[3] for m in minibatch])).to(device).squeeze(1)
+        next_states = torch.FloatTensor(np.stack([np.squeeze(m[3]) for m in minibatch])).to(device)
         dones = torch.FloatTensor(np.array([m[4] for m in minibatch])).to(device)
 
         if dones.ndim > 1:
@@ -224,41 +251,75 @@ class DQNAgent:
 
         return loss.item()
 
-    def reset_episode(self):
-        self.collected_berries = 0
-        self.bonus_applied = False  # Flag per controllare l'applicazione del bonus/penalità
+    def finalize_episode(self, pacman):
+        if not self.bonus_applied:
+            if self.collected_berries >= self.target_berries and pacman.life > 0:
+                bonus = 150
+                print("Obiettivo bacche raggiunto: reward bonus +150")
+            elif pacman.life <= 0 and self.collected_berries < self.target_berries:
+                bonus = -50
+                print("Pacman morto senza raccogliere abbastanza bacche: penalità -50")
+            else:
+                bonus = 0
+            self.bonus_applied = True
+            return bonus
+        return 0
+
+    def update_stall_counter(self, pacman, min_distance=3):
+        current_pos = (pacman.rect.x, pacman.rect.y)
+        if hasattr(self, 'last_position') and self.last_position is not None:
+            # Calcola la distanza euclidea tra le posizioni
+            distance = np.sqrt((current_pos[0] - self.last_position[0]) ** 2 +
+                               (current_pos[1] - self.last_position[1]) ** 2)
+            if distance < min_distance:
+                self.stall_counter += 1
+            else:
+                self.stall_counter = 0
+        else:
+            self.stall_counter = 0
+        self.last_position = current_pos
 
     def calculate_reward(self, game):
         reward = 0
         pacman = game.player.sprite
+        pos = (pacman.rect.x, pacman.rect.y)
+
+        # Penalità per ogni step per incoraggiare la velocità
+        reward -= self.step_penalty
+
+        # Aggiorna il contatore di inattività
+        self.update_stall_counter(pacman)
+
+       # print("Controllo dello stallo: ", self.stall_counter)
+        # Se Pac-Man è fermo troppo a lungo, applica una penalità
+        if self.stall_counter >= self.stall_threshold:
+            reward -= 5  # Penalità per blocco prolungato
+            self.stall_counter = 0
+            #print("Applica la reward negativa per lo stallo")
+
+
+        # Bonus per l’esplorazione di nuove posizioni
+        if pos not in self.visited_positions:
+            reward += 5
+            self.visited_positions.add(pos)
 
         berries = game.berries.sprites()
-
         for berry in berries:
             if pacman.rect.colliderect(berry.rect):
                 if berry.power_up:
                     pacman.immune = True
                     pacman.immune_time = 150
                     pacman.pac_score += 50
-                    reward += 50  # bonus per raccolta power-up
-                    print("Bacca power-up raccolta: bonus +50")
+                    reward += 50  # Bonus per raccolta power-up
+                    #print("Bacca power-up raccolta: bonus +50")
                 else:
                     pacman.pac_score += 10
-                    reward += 10  # bonus per bacca normale
-                    print("Bacca normale raccolta: bonus +10")
+                    reward += 10  # Bonus per bacca normale
+                    #print("Bacca normale raccolta: bonus +10")
                 pacman.n_bacche += 1
                 self.collected_berries += 1
                 berry.kill()
 
-        if not self.bonus_applied:
-            if self.collected_berries >= self.target_berries and pacman.life > 0:
-                reward += 150
-                self.bonus_applied = True
-                print("Obiettivo bacche raggiunto: reward bonus +150")
-            elif pacman.life <= 0 and self.collected_berries < self.target_berries:
-                reward -= 50
-                self.bonus_applied = True
-                print("Pacman morto senza raccogliere abbastanza bacche: penalità -50")
 
         for ghost in game.ghosts.sprites():
             distance = game.get_distance(pacman.rect.center, ghost.rect.center)
@@ -268,13 +329,12 @@ class DQNAgent:
                     if ghost_distance_delta > 0:
                         bonus = int(ghost_distance_delta * 2)
                         reward += bonus
-                        print(
-                            f"Inseguimento fantasma in power-up: distanza delta={ghost_distance_delta}, bonus={bonus}")
+                        #print(f"Inseguimento fantasma in power-up: distanza delta={ghost_distance_delta}, bonus={bonus}")
                 pacman.last_ghost_distance = distance
             else:
                 if distance < 100:
                     penalty = int((100 - distance) * 1)
                     reward -= penalty
-                    print(f"Troppo vicino al fantasma: distanza={distance}, penalità={penalty}")
+                   # print(f"Troppo vicino al fantasma: distanza={distance}, penalità={penalty}")
 
         return int(reward)

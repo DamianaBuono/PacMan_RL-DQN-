@@ -101,8 +101,8 @@ class Main:
             reward_all_episodes.append(episode_reward)
             loss_all_episodes.append(episode_loss)
 
-            if (episode + 1) % 5 == 0:
-                mean_reward = np.mean(reward_all_episodes[-5:])
+            if (episode + 1) % 100 == 0:
+                mean_reward = np.mean(reward_all_episodes[-100:])
                 print(f"Episode {episode + 1}: Average Reward (last 100 episodes): {mean_reward}")
                 with writer.as_default():
                     tf.summary.scalar('mean_reward_last_100', mean_reward, step=episode)
@@ -128,7 +128,7 @@ if __name__ == "__main__":
     mode = "training"  # Scegli tra "training" e "game"
 
     if mode == "training":
-        training_name = "Training_Pacman_3"  # Imposta qui il nome del training
-        play.simulate_training(episodes=10, training_name=training_name)
+        training_name = "Training_Pacman_2"  # Imposta qui il nome del training
+        play.simulate_training(episodes=500, training_name=training_name)
     elif mode == "game":
         play.main()
