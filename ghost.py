@@ -68,3 +68,7 @@ class Ghost(pygame.sprite.Sprite):
 			self.rect.x = 0
 
 		self._animate()
+
+	def draw(self, surface):
+		"""Disegna il fantasma sullo schermo."""
+		surface.blit(self.image, self.rect)
