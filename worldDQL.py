@@ -204,7 +204,7 @@ class World:
 
         for berry in self.berries.sprites():
             if pacman.rect.colliderect(berry.rect):
-                # Bonus progressivi: assegna solo se non già dato
+                pacman.n_bacche += 1
                 milestones = {24: 1, 49: 2, 98: 3, 147: 4}
                 if pacman.life > 0:
                     for m, bonus in milestones.items():
@@ -220,7 +220,6 @@ class World:
                 else:
                     reward += 1
                     pacman.pac_score += 10
-                pacman.n_bacche += 1
                 berry.kill()
 
         # Gestione della collisione con il fantasma

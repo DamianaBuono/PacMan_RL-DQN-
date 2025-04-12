@@ -100,17 +100,23 @@ class Main:
 
                     if world.loss:
                         episode_losses.append(world.loss)
+                    pygame.display.update()
+                    self.FPS.tick(30)
+
+                # Calcolo della media delle reward (reward medio per step)
+                avg_reward = episode_reward / episode_steps if episode_steps > 0 else 0.0
 
                 lives = world.player.sprite.life
                 berries = world.player.sprite.n_bacche
                 avg_loss = np.mean(episode_losses) if episode_losses else 0.0
 
                 print(f"Episode {episode + 1}: Reward = {episode_reward}, Steps = {episode_steps}, "
-                      f"Lives = {lives}, Berries = {berries}, Avg Loss = {avg_loss:.4f}")
+                      f"Lives = {lives}, Berries = {berries}, Avg Loss = {avg_loss:.4f}, Avg Reward = {avg_reward:.4f}")
 
                 episodes_data.append({
                     "Episode": episode + 1,
                     "Cumulative_Reward": episode_reward,
+                    "Average_Reward": avg_reward,  # Aggiunto il reward medio
                     "Steps": episode_steps,
                     "Remaining_Lives": lives,
                     "Berries_Eaten": berries,
@@ -119,6 +125,7 @@ class Main:
 
                 # Logging su TensorBoard
                 writer.add_scalar("Reward/Cumulative", episode_reward, episode)
+                writer.add_scalar("Reward/Average", avg_reward, episode)  # Logging della media delle reward
                 writer.add_scalar("Agent/Avg_Loss", avg_loss, episode)
                 writer.add_scalar("Env/Remaining_Lives", lives, episode)
                 writer.add_scalar("Env/Berries_Eaten", berries, episode)
@@ -143,7 +150,7 @@ class Main:
 
             # Salvataggio dei grafici
             if not results_df.empty:
-                # Grafico della Cumulative Reward per episodio
+                # Grafico della reward cumulativa
                 plt.figure(figsize=(10, 6))
                 plt.plot(results_df["Episode"], results_df["Cumulative_Reward"], marker='o', linestyle='-', color='blue')
                 plt.title('Cumulative Reward per Episode')
@@ -153,18 +160,17 @@ class Main:
                 plt.savefig(os.path.join(save_dir, "training_CumulativeReward.png"))
                 plt.close()
 
-                # Grafico della Reward Media (moving average)
-                window = 10  # Puoi modificare la dimensione della finestra a tuo piacimento
-                results_df["Reward_Media"] = results_df["Cumulative_Reward"].rolling(window=window).mean()
+                # Grafico della reward media
                 plt.figure(figsize=(10, 6))
-                plt.plot(results_df["Episode"], results_df["Reward_Media"], marker='o', linestyle='-', color='purple')
-                plt.title(f'Reward Media (Moving Average over {window} episodi)')
+                plt.plot(results_df["Episode"], results_df["Average_Reward"], marker='o', linestyle='-', color='purple')
+                plt.title('Average Reward per Episode')
                 plt.xlabel('Episode')
-                plt.ylabel('Reward Media')
+                plt.ylabel('Average Reward')
                 plt.grid(True)
                 plt.savefig(os.path.join(save_dir, "training_AverageReward.png"))
                 plt.close()
 
+                # Grafico delle vite residue
                 plt.figure(figsize=(10, 6))
                 plt.plot(results_df["Episode"], results_df["Remaining_Lives"], marker='o', linestyle='-', color='orange')
                 plt.title('Remaining Lives per Episode')
@@ -174,6 +180,7 @@ class Main:
                 plt.savefig(os.path.join(save_dir, "training_RemainingLives.png"))
                 plt.close()
 
+                # Grafico delle bacche mangiate
                 plt.figure(figsize=(10, 6))
                 plt.plot(results_df["Episode"], results_df["Berries_Eaten"], marker='o', linestyle='-', color='green')
                 plt.title('Berries Eaten per Episode')
@@ -183,6 +190,7 @@ class Main:
                 plt.savefig(os.path.join(save_dir, "training_BerriesEaten.png"))
                 plt.close()
 
+                # Grafico della loss media
                 plt.figure(figsize=(10, 6))
                 plt.plot(results_df["Episode"], results_df["Average_Loss"], marker='o', linestyle='-', color='red')
                 plt.title('Average Loss per Episode')
