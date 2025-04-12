@@ -143,6 +143,7 @@ class Main:
 
             # Salvataggio dei grafici
             if not results_df.empty:
+                # Grafico della Cumulative Reward per episodio
                 plt.figure(figsize=(10, 6))
                 plt.plot(results_df["Episode"], results_df["Cumulative_Reward"], marker='o', linestyle='-', color='blue')
                 plt.title('Cumulative Reward per Episode')
@@ -150,6 +151,18 @@ class Main:
                 plt.ylabel('Cumulative Reward')
                 plt.grid(True)
                 plt.savefig(os.path.join(save_dir, "training_CumulativeReward.png"))
+                plt.close()
+
+                # Grafico della Reward Media (moving average)
+                window = 10  # Puoi modificare la dimensione della finestra a tuo piacimento
+                results_df["Reward_Media"] = results_df["Cumulative_Reward"].rolling(window=window).mean()
+                plt.figure(figsize=(10, 6))
+                plt.plot(results_df["Episode"], results_df["Reward_Media"], marker='o', linestyle='-', color='purple')
+                plt.title(f'Reward Media (Moving Average over {window} episodi)')
+                plt.xlabel('Episode')
+                plt.ylabel('Reward Media')
+                plt.grid(True)
+                plt.savefig(os.path.join(save_dir, "training_AverageReward.png"))
                 plt.close()
 
                 plt.figure(figsize=(10, 6))

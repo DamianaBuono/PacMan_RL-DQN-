@@ -29,59 +29,20 @@ class ReplayBuffer:
         return len(self.buffer)
 
 
-class NoisyLinear(nn.Module):
-    def __init__(self, in_features, out_features, sigma_init=0.017):
-        super(NoisyLinear, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-
-        self.weight_mu = nn.Parameter(torch.empty(out_features, in_features))
-        self.weight_sigma = nn.Parameter(torch.empty(out_features, in_features))
-        self.register_buffer('weight_epsilon', torch.empty(out_features, in_features))
-
-        self.bias_mu = nn.Parameter(torch.empty(out_features))
-        self.bias_sigma = nn.Parameter(torch.empty(out_features))
-        self.register_buffer('bias_epsilon', torch.empty(out_features))
-
-        self.sigma_init = sigma_init
-        self.reset_parameters()
-        self.reset_noise()
-
-    def reset_parameters(self):
-        mu_range = 1 / math.sqrt(self.in_features)
-        self.weight_mu.data.uniform_(-mu_range, mu_range)
-        self.weight_sigma.data.fill_(self.sigma_init)
-        self.bias_mu.data.uniform_(-mu_range, mu_range)
-        self.bias_sigma.data.fill_(self.sigma_init)
-
-    def reset_noise(self):
-        self.weight_epsilon.normal_()
-        self.bias_epsilon.normal_()
-
-    def forward(self, input):
-        if self.training:
-            weight = self.weight_mu + self.weight_sigma * self.weight_epsilon
-            bias = self.bias_mu + self.bias_sigma * self.bias_epsilon
-        else:
-            weight = self.weight_mu
-            bias = self.bias_mu
-        return nn.functional.linear(input, weight, bias)
-
-
 class DuelingDQN(nn.Module):
     def __init__(self, state_size, action_size):
         super(DuelingDQN, self).__init__()
-        # Layers condivisi per l'estrazione delle features
-        self.fc1 = NoisyLinear(state_size, 128)
-        self.fc2 = NoisyLinear(128, 128)
+        # Layer condivisi per l'estrazione delle features
+        self.fc1 = nn.Linear(state_size, 128)
+        self.fc2 = nn.Linear(128, 128)
 
         # Stream per il valore dello stato V(s)
-        self.fc_value = NoisyLinear(128, 64)
-        self.value = NoisyLinear(64, 1)
+        self.fc_value = nn.Linear(128, 64)
+        self.value = nn.Linear(64, 1)
 
         # Stream per l'advantage A(s,a)
-        self.fc_advantage = NoisyLinear(128, 64)
-        self.advantage = NoisyLinear(64, action_size)
+        self.fc_advantage = nn.Linear(128, 64)
+        self.advantage = nn.Linear(64, action_size)
 
     def forward(self, x):
         x = torch.relu(self.fc1(x))
@@ -99,11 +60,6 @@ class DuelingDQN(nn.Module):
         q = value + (advantage - advantage.mean(dim=1, keepdim=True))
         return q
 
-    def reset_noise(self):
-        for m in self.modules():
-            if isinstance(m, NoisyLinear):
-                m.reset_noise()
-
 
 class DQNAgent:
     def __init__(self, state_size, action_size):
@@ -118,9 +74,9 @@ class DQNAgent:
         self.target_update_freq = 100
 
         self.stall_counter = 0
+        self.stall_threshold = 500
 
-
-        # Parametri ε (seppure con NoisyNet)
+        # Parametri per ε-greedy
         self.epsilon = 0.2
         self.epsilon_decay = 0.995
         self.epsilon_min = 0.01
@@ -153,7 +109,6 @@ class DQNAgent:
     def act(self, state):
         # Converte lo stato in un vettore flattenato
         state = np.array(state).flatten()
-
         # Utilizza le informazioni sugli ostacoli (ultime 4 feature fra i 6 finali)
         wall_up, wall_down, wall_left, wall_right = state[-6:-2]
         invalid_actions = []
@@ -166,18 +121,21 @@ class DQNAgent:
         if wall_right:
             invalid_actions.append(3)
 
-        state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
-        self.model.reset_noise()
-        with torch.no_grad():
-            q_values = self.model(state_tensor).squeeze()
-        q_values = q_values.cpu().numpy()
-
-        # Considera solo le azioni valide
+        # Determina le azioni valide
         valid_actions = [i for i in range(self.action_size) if i not in invalid_actions]
         if not valid_actions:
             valid_actions = list(range(self.action_size))
-        valid_qs = {i: q_values[i] for i in valid_actions}
-        action = max(valid_qs, key=valid_qs.get)
+
+        # Esplorazione ε-greedy: con probabilità epsilon sceglie azione casuale
+        if np.random.rand() < self.epsilon:
+            action = np.random.choice(valid_actions)
+        else:
+            state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
+            with torch.no_grad():
+                q_values = self.model(state_tensor).squeeze()
+            q_values = q_values.cpu().numpy()
+            valid_qs = {i: q_values[i] for i in valid_actions}
+            action = max(valid_qs, key=valid_qs.get)
 
         return action
 
@@ -220,6 +178,9 @@ class DQNAgent:
         else:
             self.soft_update_target_model(tau=0.05)
 
+        # Decay epsilon ad ogni chiamata di replay oppure al termine dell'episodio
+        self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_min)
+
         return loss.item()
 
     def reset_episode(self):
@@ -228,5 +189,3 @@ class DQNAgent:
         self.visited_positions = set()
         self.stall_counter = 0
         self.action_history = []  # Resetta la cronologia delle azioni
-
-
