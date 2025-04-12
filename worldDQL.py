@@ -1,3 +1,4 @@
+import math
 import pygame
 import numpy as np
 from settings import HEIGHT, WIDTH, NAV_HEIGHT, CHAR_SIZE, MAP, PLAYER_SPEED
@@ -6,18 +7,19 @@ from cell import Cell
 from berry import Berry
 from ghost import Ghost
 from display import Display
-from reinforcementDQL import DQNAgent
+from reinforcementDQL import DQNAgent  # L'agente ora non calcola il reward
 
 class World:
     def __init__(self, screen):
         self.screen = screen
-        self.agent = DQNAgent(state_size=16, action_size=4)
+        # Nota: lo stato ha 19 dimensioni se includi informazioni aggiuntive
+        self.agent = DQNAgent(state_size=19, action_size=4)
         self.player = pygame.sprite.GroupSingle()
         # Invece di un gruppo, usiamo un singolo fantasma
         self.ghost = None
         self.walls = pygame.sprite.Group()
         self.berries = pygame.sprite.Group()
-
+        self.loss = 0
         self.display = Display(self.screen)
         self.game_over = False
         self.reset_pos = False
@@ -26,7 +28,6 @@ class World:
         self.total_reward = 0
         self.last_position = None
         self.combo_counter = 0
-
         self._generate_world()
 
     def _generate_world(self):
@@ -68,10 +69,10 @@ class World:
         self.player.sprite.move_to_start_pos()
         self.player.sprite.direction = (0, 0)
         self.player.sprite.status = "idle"
-
+        self.loss = 0
         self.combo_counter = 0
         self.last_position = None
-
+        self.player.sprite.milestones_rewarded.clear()
         self.agent.reset_episode()
         self.total_reward = 0
 
@@ -98,9 +99,93 @@ class World:
             self.player.sprite.status = "idle"
             self.generate_new_level()
 
+    def get_current_state(self):
+        pac_rect = self.player.sprite.rect
+        pac_pos = (pac_rect.x, pac_rect.y)
+        norm_x = pac_pos[0] / WIDTH
+        norm_y = pac_pos[1] / HEIGHT
+
+        pac_direction = self.player.sprite.direction
+        norm_dx = pac_direction[0] / PLAYER_SPEED
+        norm_dy = pac_direction[1] / PLAYER_SPEED
+
+        max_distance = math.sqrt(WIDTH ** 2 + HEIGHT ** 2)
+
+        # Gestione del singolo fantasma
+        if self.ghost:
+            ghost_distance = self.get_distance(pac_rect.center, self.ghost.rect.center)
+            norm_ghost_distance = ghost_distance / max_distance
+            ghost_dx_norm = self.ghost.direction[0] / PLAYER_SPEED
+            ghost_dy_norm = self.ghost.direction[1] / PLAYER_SPEED
+            num_ghosts = 1
+        else:
+            norm_ghost_distance = 1.0
+            ghost_dx_norm = 0.0
+            ghost_dy_norm = 0.0
+            num_ghosts = 0
+
+        # Calcola le informazioni della bacca più vicina
+        berries = [(berry.abs_x, berry.abs_y) for berry in self.berries.sprites()]
+        if berries:
+            berry_distances = [self.get_distance(pac_rect.center, pos) for pos in berries]
+            min_distance = min(berry_distances)
+            norm_nearest_berry_distance = min_distance / max_distance
+            min_index = np.argmin(berry_distances)
+            nearest_berry_pos = berries[min_index]
+            berry_dx = (nearest_berry_pos[0] - pac_pos[0]) / WIDTH
+            berry_dy = (nearest_berry_pos[1] - pac_pos[1]) / HEIGHT
+        else:
+            norm_nearest_berry_distance = 0.0
+            berry_dx = 0.0
+            berry_dy = 0.0
+
+        is_immune = 1 if self.player.sprite.immune else 0
+        walls = self.check_walls((pac_rect.x, pac_rect.y))
+        norm_n_bacche = self.player.sprite.n_bacche / self.agent.target_berries
+
+        # Flag di pericolo se il fantasma è troppo vicino
+        danger_threshold = 0.2
+        danger_flag = 1 if norm_ghost_distance < danger_threshold else 0
+
+        state = np.array([
+            norm_x,
+            norm_y,
+            norm_dx,
+            norm_dy,
+            num_ghosts,
+            len(self.berries.sprites()),
+            norm_ghost_distance,
+            ghost_dx_norm,
+            ghost_dy_norm,
+            norm_nearest_berry_distance,
+            berry_dx,
+            berry_dy,
+            is_immune,
+            walls["up"],
+            walls["down"],
+            walls["left"],
+            walls["right"],
+            norm_n_bacche,
+            danger_flag
+        ])
+
+        return state
+
+    def apply_action(self, action):
+        actions_map = {
+            0: (0, -PLAYER_SPEED),
+            1: (0, PLAYER_SPEED),
+            2: (-PLAYER_SPEED, 0),
+            3: (PLAYER_SPEED, 0)
+        }
+        self.player.sprite.direction = actions_map[action]
+
+    def get_distance(self, pos1, pos2):
+        return math.sqrt((pos1[0] - pos2[0])**2 + (pos1[1] - pos2[1])**2)
+
     def check_walls(self, pac_pos):
         walls = {"up": 0, "down": 0, "left": 0, "right": 0}
-        tile_size = CHAR_SIZE  # dimensione di una cella
+        tile_size = CHAR_SIZE
         for wall in self.walls.sprites():
             if (pac_pos[0], pac_pos[1] - tile_size) == (wall.rect.x, wall.rect.y):
                 walls["up"] = 1
@@ -112,63 +197,53 @@ class World:
                 walls["right"] = 1
         return walls
 
-    def get_current_state(self):
-        pac_pos = (self.player.sprite.rect.x, self.player.sprite.rect.y)
-        pac_direction = self.player.sprite.direction
+    # Funzione per il reward ambientale
+    def compute_reward(self):
+        reward = 0
+        pacman = self.player.sprite
 
-        # Dati relativi al singolo fantasma
-        if self.ghost:
-            distance = self.get_distance(self.player.sprite.rect.center, self.ghost.rect.center)
-            ghost_data = [distance, self.ghost.direction[0], self.ghost.direction[1]]
+        for berry in self.berries.sprites():
+            if pacman.rect.colliderect(berry.rect):
+                # Bonus progressivi: assegna solo se non già dato
+                milestones = {24: 1, 49: 2, 98: 3, 147: 4}
+                if pacman.life > 0:
+                    for m, bonus in milestones.items():
+                        if pacman.n_bacche == m and m not in pacman.milestones_rewarded:
+                            reward += bonus
+                            print("BONUS ", reward)
+                            pacman.milestones_rewarded.add(m)
+                if berry.power_up:
+                    reward += 2
+                    pacman.immune = True
+                    pacman.immune_time = 150
+                    pacman.pac_score += 50
+                else:
+                    reward += 1
+                    pacman.pac_score += 10
+                pacman.n_bacche += 1
+                berry.kill()
+
+        # Gestione della collisione con il fantasma
+        ghost = self.ghost
+        if pacman.rect.colliderect(ghost.rect):
+            if pacman.immune:
+                reward += 5
+                ghost.move_to_start_pos()
+            else:
+                reward -= 10
+
+        self.total_reward += reward  # Accumula il reward nell'ambiente
+        return reward
+
+    # Bonus finale al termine dell'episodio
+    def compute_final_bonus(self):
+        pacman = self.player.sprite
+        if pacman.n_bacche >= self.agent.target_berries and pacman.life > 0:
+            return 50
+        elif pacman.life <= 0 and pacman.n_bacche < self.agent.target_berries:
+            return -10
         else:
-            ghost_data = [999, 0, 0]
-
-        # Informazioni sulle bacche: distanza della bacchetta più vicina
-        berries = [(berry.abs_x, berry.abs_y) for berry in self.berries.sprites()]
-        if berries:
-            berry_distances = [self.get_distance(self.player.sprite.rect.center, (b[0], b[1])) for b in berries]
-            nearest_berry_distance = min(berry_distances)
-        else:
-            nearest_berry_distance = 999
-
-        is_immune = 1 if self.player.sprite.immune else 0
-        walls = self.check_walls(pac_pos)
-        num_berries = len(self.berries.sprites())
-
-        # Stato esteso (dimensione = 25):
-        # [pac_x, pac_y, pac_dx, pac_dy, num_ghosts, num_berries,
-        #  ghost_distance, ghost_dx, ghost_dy,
-        #  nearest_berry_distance, is_immune,
-        #  walls: up, down, left, right, n_bacche]
-        state = np.array([
-            pac_pos[0],
-            pac_pos[1],
-            pac_direction[0],
-            pac_direction[1],
-            1,                # essendoci un solo fantasma, il numero è 1 (oppure 0 se non esiste)
-            num_berries,
-        ] + ghost_data + [
-            nearest_berry_distance,
-            is_immune,
-            walls["up"],
-            walls["down"],
-            walls["left"],
-            walls["right"],
-            self.player.sprite.n_bacche
-        ])
-        return state
-
-    def apply_action(self, action):
-        actions_map = {
-            0: (0, -PLAYER_SPEED),   # Su
-            1: (0, PLAYER_SPEED),    # Giù
-            2: (-PLAYER_SPEED, 0),   # Sinistra
-            3: (PLAYER_SPEED, 0)     # Destra
-        }
-        self.player.sprite.direction = actions_map[action]
-
-    def get_distance(self, pos1, pos2):
-        return ((pos1[0] - pos2[0]) ** 2 + (pos1[1] - pos2[1]) ** 2) ** 0.5
+            return 0
 
     def updateRL(self):
         if not self.game_over:
@@ -176,29 +251,15 @@ class World:
             current_state = self.get_current_state()
             action = self.agent.act(current_state)
 
-            # Logica euristica per fuggire dal singolo fantasma (se non immune)
-            if not self.player.sprite.immune and self.ghost:
-                pac_center = np.array(self.player.sprite.rect.center)
-                ghost_center = np.array(self.ghost.rect.center)
-                distance = self.get_distance(pac_center, ghost_center)
-                if distance < 200:
-                    diff = pac_center - ghost_center
-                    if abs(diff[0]) > abs(diff[1]):
-                        escape_action = 3 if diff[0] > 0 else 2
-                    else:
-                        escape_action = 1 if diff[1] > 0 else 0
-                    action = escape_action
-
             self.apply_action(action)
             self.player.sprite.animateRL(action, self.walls_collide_list)
 
-            # Gestione del wrapping orizzontale
             if self.player.sprite.rect.right <= 0:
                 self.player.sprite.rect.x = WIDTH
             elif self.player.sprite.rect.left >= WIDTH:
                 self.player.sprite.rect.x = 0
 
-            # Controllo collisione con il singolo fantasma
+            # Gestione collisione con il fantasma
             if self.ghost and self.player.sprite.rect.colliderect(self.ghost.rect):
                 if self.player.sprite.immune:
                     self.ghost.move_to_start_pos()
@@ -215,19 +276,17 @@ class World:
             if self.player.sprite.life <= 0 or self.player.sprite.n_bacche >= self.agent.target_berries:
                 self.game_over = True
 
-            # Calcolo del reward per questo step
-            reward = self.agent.calculate_reward(self)
+            # Calcolo del reward e aggiornamento dello stato
+            reward = self.compute_reward()
+            if self.game_over:
+                reward += self.compute_final_bonus()
+
             next_state = self.get_current_state()
             done = self.game_over
 
-            if self.game_over:
-                final_bonus = self.agent.finalize_episode(self.player.sprite)
-                reward += final_bonus
-
             self.agent.remember(current_state, action, reward, next_state, done)
-            self.agent.replay()
-
-            self.total_reward += reward
+            self.loss = self.agent.replay()
+            # Il reward cumulativo viene gestito via self.total_reward
 
             self._check_game_state()
 
@@ -235,7 +294,6 @@ class World:
             [berry.update(self.screen) for berry in self.berries.sprites()]
             if self.ghost:
                 self.ghost.update(self.walls_collide_list)
-            if self.ghost:
                 self.ghost.draw(self.screen)
 
             self.player.update()
@@ -256,13 +314,12 @@ class World:
         if not self.game_over:
             pressed_key = pygame.key.get_pressed()
             self.player.sprite.animate(pressed_key, self.walls_collide_list)
-
             if self.player.sprite.rect.right <= 0:
                 self.player.sprite.rect.x = WIDTH
             elif self.player.sprite.rect.left >= WIDTH:
                 self.player.sprite.rect.x = 0
 
-            # Controllo collisione con il singolo fantasma
+            # Controllo collisione con il fantasma
             if self.ghost and self.player.sprite.rect.colliderect(self.ghost.rect):
                 if not self.player.sprite.immune:
                     self.player.sprite.life -= 1
@@ -276,10 +333,10 @@ class World:
             elif self.player.sprite.n_bacche >= self.agent.target_berries:
                 self.game_over = True
 
-            reward = self.agent.calculate_reward(self)
+            # Calcolo del reward
+            reward = self.compute_reward()
             if self.game_over:
-                final_bonus = self.agent.finalize_episode(self.player.sprite)
-                reward += final_bonus
+                reward += self.compute_final_bonus()
 
             for berry in self.berries.sprites():
                 if self.player.sprite.rect.colliderect(berry.rect):
@@ -296,12 +353,12 @@ class World:
         [berry.update(self.screen) for berry in self.berries.sprites()]
         if self.ghost:
             self.ghost.update(self.walls_collide_list)
-        if self.ghost:
             self.ghost.draw(self.screen)
         self.player.update()
         self.player.draw(self.screen)
         if self.game_over:
             self.display.game_over()
+
         self._dashboard()
 
         if self.reset_pos and not self.game_over:
