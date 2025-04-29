@@ -20,7 +20,7 @@ pygame.display.set_caption("PacMan")
 
 # Directory per TensorBoard e per il salvataggio dei modelli
 BASE_LOG_DIR = r"C:\Users\claud\PycharmProjects\tensorboard"
-BASE_MODEL_DIR = r"C:\Users\claud\Desktop\IA\ModelliSalvati"
+BASE_MODEL_DIR = r"C:\Users\mucci\Desktop\IA\ModelliDQN"
 
 
 class Main:
@@ -92,7 +92,6 @@ class Main:
 
                     if world.loss:
                         episode_losses.append(world.loss)
-
                     pygame.display.update()
                     self.FPS.tick(30)
 
@@ -119,15 +118,24 @@ class Main:
                     "Total_Positive": positive_total
                 })
 
-                writer.add_scalar("Reward/Cumulative", episode_reward, episode)
-                writer.add_scalar("Reward/Average", avg_reward, episode)
-                writer.add_scalar("Env/Avg_Loss", avg_loss, episode)
-                writer.add_scalar("Env/Remaining_Lives", lives, episode)
-                writer.add_scalar("Env/Berries_Eaten", berries, episode)
-                writer.add_scalar("Env/Steps", episode_steps, episode)
-                writer.add_scalar("Reward/Total_Penalty", penalty_total, episode)
-                writer.add_scalar("Reward/Total_Positive", positive_total, episode)
+                # Calcolo media mobile sugli ultimi 100 episodi
+                window = 100
+                start_idx = max(0, episode - window + 1)
+                recent = episodes_data[start_idx:episode + 1]
 
+                def moving_avg(key):
+                    return np.mean([ep[key] for ep in recent])
+
+                writer.add_scalar("Reward/Cumulative_Reward_MA100", moving_avg("Cumulative_Reward"), episode)
+                writer.add_scalar("Reward/Average_Reward_MA100", moving_avg("Average_Reward"), episode)
+                writer.add_scalar("Env/Avg_Loss_MA100", moving_avg("Average_Loss"), episode)
+                writer.add_scalar("Env/Remaining_Lives_MA100", moving_avg("Remaining_Lives"), episode)
+                writer.add_scalar("Env/Berries_Eaten_MA100", moving_avg("Berries_Eaten"), episode)
+                writer.add_scalar("Env/Steps_MA100", moving_avg("Steps"), episode)
+                writer.add_scalar("Reward/Total_Penalty_MA100", moving_avg("Total_Penalty"), episode)
+                writer.add_scalar("Reward/Total_Positive_MA100", moving_avg("Total_Positive"), episode)
+
+                # Q-value medio su stati di validazione
                 with torch.no_grad():
                     q_values = self.agent.model(torch.FloatTensor(validation_states).to(device))
                     avg_q = q_values.mean().item()
@@ -161,6 +169,7 @@ class Main:
                 plot_line("Average_Loss", "Average Loss", "red")
                 plot_line("Total_Penalty", "Total Penalty", "darkred")
                 plot_line("Total_Positive", "Total Positive", "darkred")
+
             model_filename = f"{training_name}.pth"
             model_path = os.path.join(save_dir, model_filename)
             torch.save({
@@ -194,10 +203,10 @@ if __name__ == "__main__":
     mode = "training"  # Modifica in base alla modalità desiderata
 
     if mode == "training":
-        #model_path = r"C:\Users\claud\Desktop\IA\ModelliSalvati\Training_Pacman_8.1_con_noisy\Training_Pacman_8.1_con_noisy.pth"
-        main_obj = Main(screen)
-        training_name = "Training_Pacman_1_con_4fantasmi_noisy"
-        main_obj.simulate_training(episodes=100, training_name=training_name)
+        model_path = r"C:\Users\mucci\Desktop\IA\ModelliDQN\Training_Pacman_0_con_98b_noisy\Training_Pacman_0_con_98b_noisy.pth"
+        main_obj = Main(screen, model_path)
+        training_name = "Training_Pacman_01_con_98b_noisy"
+        main_obj.simulate_training(episodes= 10000, training_name=training_name)
     elif mode == "testing":
         model_path = r"C:\Users\claud\Desktop\IA\ModelliSalvati\Training_Pacman_8_con_noisy\Training_Pacman_8_con_noisy.pth"
         main_obj = Main(screen, model_path=model_path)

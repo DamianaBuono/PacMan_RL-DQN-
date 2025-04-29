@@ -33,6 +33,8 @@ class World:
         self._generate_world()
         self.total_penalty = 0
         self.total_positive = 0
+        self.episode_steps = 0
+        self.max_episode_steps = 1500
 
 
     def _generate_world(self):
@@ -72,12 +74,11 @@ class World:
         self.player.sprite.direction = (0, 0)
         self.player.sprite.status = "idle"
         self.loss = 0
-        self.combo_counter = 0
-        self.last_position = None
         self.player.sprite.milestones_rewarded.clear()
         self.agent.reset_episode()
         self.total_reward = 0
         self.action_history.clear()
+        self.episode_steps = 0  # reset contatore passi
 
         self.generate_new_level()
 
@@ -110,6 +111,10 @@ class World:
                 a == [1, 0, 1, 0] or
                 a == [2, 3, 2, 3] or
                 a == [3, 2, 3, 2])
+
+    def detect_position_loop(self):
+        # Se nelle ultime posizioni meno di 4 sono distinte, probabilmente bloccato
+        return len(set(self.pos_history)) < 4 if len(self.pos_history) == self.pos_history.maxlen else False
 
     def get_current_state(self):
         pac_rect = self.player.sprite.rect
@@ -204,35 +209,34 @@ class World:
         for berry in self.berries.sprites():
             if pacman.rect.colliderect(berry.rect):
                 pacman.n_bacche += 1
-                reward += 20
-                self.total_positive += 20
+                reward += 2.0  # ← normalizzato
+                self.total_positive += 2.0
                 pacman.pac_score += 10
-                milestones = {24: 10, 49: 20, 98: 30, 147: 40}
+                milestones = {24: 0.5, 49: 1.0} #, 98: 1.5, 147: 2.0
                 for m, bonus in milestones.items():
                     if pacman.n_bacche == m and m not in pacman.milestones_rewarded:
                         reward += bonus
-                        print("BONUS ", reward)
+                        self.total_positive += bonus
                         pacman.milestones_rewarded.add(m)
                 if berry.power_up:
-                    reward += 25
-                    self.total_positive += 25
+                    reward += 2.5
+                    self.total_positive += 2.5
                     pacman.immune = True
                     pacman.immune_time = 150
                     pacman.pac_score += 50
                 berry.kill()
+
+
         for ghost in self.ghosts.sprites():
             if pacman.rect.colliderect(ghost.rect):
                 if pacman.immune:
-                    reward += 50
-                    self.total_positive += 50
+                    reward += 3.0  # ← normalizzato
+                    self.total_positive += 3.0
                 else:
-                    reward -= 30
-                self.total_penalty += 30
-        return reward
+                    reward -= 3.0  # ← normalizzato
+                self.total_penalty += 3.0
 
-    def detect_position_loop(self):
-        # Se nelle ultime posizioni meno di 4 sono distinte, probabilmente bloccato
-        return len(set(self.pos_history)) < 4 if len(self.pos_history) == self.pos_history.maxlen else False
+        return int(reward)
 
     def compute_action_reward(self, action):
         actions_map = {0: (0, -PLAYER_SPEED), 1: (0, PLAYER_SPEED), 2: (-PLAYER_SPEED, 0), 3: (PLAYER_SPEED, 0)}
@@ -242,35 +246,48 @@ class World:
         new_pos = (pacman.rect.x + dx, pacman.rect.y + dy)
         action_reward = 0.0
         if new_pos == current_pos:
-            action_reward -= 2  # penalizzazione più severa per muro
-            self.total_penalty += 2
+            action_reward -= 0.02
+            self.total_penalty += 0.02
         elif new_pos in self.agent.visited_positions:
-            action_reward -= 1
-            self.total_penalty += 1
+            action_reward -= 0.05
+            self.total_penalty += 0.05
         else:
-            action_reward += 2
-            self.total_positive += 2
-        self.agent.visited_positions.add(new_pos)
-        return action_reward
+            action_reward += 0.05
+            self.total_positive += 0.05
+
+
+        self.agent.visited_positions.append(new_pos)
+        return int(action_reward)
 
     def compute_final_bonus(self):
         pacman = self.player.sprite
         if pacman.n_bacche >= self.agent.target_berries and pacman.life > 0:
-            self.total_positive += 100
-            return 100
+            self.total_positive += 5.0  # ← normalizzato
+            return 5.0
         if pacman.life <= 0 and pacman.n_bacche < self.agent.target_berries:
-            self.total_penalty += 50
-            return -50
-        return 0
+            self.total_penalty += 5.0  # ← normalizzato
+            return -5.0
+        if self.episode_steps >= self.max_episode_steps:
+            self.total_penalty += 2.5  # ← normalizzato
+            return -2.5
+
+        return 0.0
 
     def updateRL(self):
         if not self.game_over:
+            self.episode_steps += 1
+            # forzatura termine episodio se troppi passi
+            if self.episode_steps >= self.max_episode_steps:
+                print("⚠️ Episodio terminato per numero massimo di passi.")
+                self.game_over = True
+
             self.screen.fill("black")
             state = self.get_current_state()
             action = self.agent.act(state)
 
-            # Verifica se c'è un loop di azioni
-            if self.detect_action_loop() or self.detect_position_loop():
+            # Verifica loop (azioni o posizioni)
+            is_loop = self.detect_action_loop() or self.detect_position_loop()
+            if is_loop:
                 possible_actions = [0, 1, 2, 3]
                 if action in possible_actions:
                     possible_actions.remove(action)
@@ -295,24 +312,21 @@ class World:
                         self.player.sprite.pac_score += 100
                     else:
                         self.player.sprite.life -= 1
-                        self.combo_counter = 0
-                        self.last_position = None
                         self.reset_pos = True
                         if self.player.sprite.life <= 0:
                             self.game_over = True
                         break
 
-            if self.player.sprite.life <= 0 or self.player.sprite.n_bacche >= self.agent.target_berries:
+            if self.player.sprite.life <= 0 or self.player.sprite.n_bacche == self.agent.target_berries:
                 self.game_over = True
 
             # Reward
             ar = self.compute_action_reward(action)
             rw = self.compute_reward() + ar
 
-            # Penalizzazione del loop
-            if self.detect_action_loop() or self.detect_position_loop():
-                rw -= 5
-                self.total_penalty += 5
+            if is_loop:
+                rw -= 1.0
+                self.total_penalty += 1.0
 
             if self.game_over:
                 rw += self.compute_final_bonus()

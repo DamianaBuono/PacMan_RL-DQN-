@@ -1,13 +1,14 @@
+
 import math
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from collections import deque
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-# ReplayBuffer rimane invariato
 class ReplayBuffer:
     def __init__(self, capacity):
         self.capacity = capacity
@@ -73,22 +74,22 @@ class NoisyLinear(nn.Module):
 class QNetwork(nn.Module):
     def __init__(self, state_size, action_size):
         super(QNetwork, self).__init__()
-        self.fc1 = nn.Linear(state_size, 256)    # da 19 a 256: come nel checkpoint
-        self.bn1 = nn.BatchNorm1d(256)
-        self.fc2 = NoisyLinear(256, 256)          # layer intermedio: 256 -> 256
-        self.bn2 = nn.BatchNorm1d(256)
-        self.dropout = nn.Dropout(0.2)
-        self.fc3 = NoisyLinear(256, action_size)  # da 256 a action_size
+        self.fc1 = nn.Linear(state_size, 256)
+        #self.ln1 = nn.LayerNorm(256)
+        #self.fc2 = nn.Linear(256, 256)
+        #self.ln2 = nn.LayerNorm(256)
+        #self.fc3 = nn.Linear(256, action_size)
+        self.fc2 = NoisyLinear(256, 256)  # layer intermedio: 256 -> 256
+        self.fc3 = NoisyLinear(256, action_size)  # da 25
+
 
     def forward(self, x):
-        # Assicurati che x abbia forma [batch, state_size]
         x = self.fc1(x)
-        x = self.bn1(x)
+        #x = self.ln1(x)
         x = torch.relu(x)
         x = self.fc2(x)
-        x = self.bn2(x)
+        #x = self.ln2(x)
         x = torch.relu(x)
-        x = self.dropout(x)
         q = self.fc3(x)
         return q
 
@@ -98,25 +99,22 @@ class QNetwork(nn.Module):
         if hasattr(self.fc3, 'reset_noise'):
             self.fc3.reset_noise()
 
-
-# Agente DQN aggiornato per sfruttare il NoisyNet senza ε-greedy esplicito
 class DQNAgent:
     def __init__(self, state_size, action_size):
-        self.state_size = state_size  # es. 19 (compreso il danger_flag)
+        self.state_size = state_size
         self.action_size = action_size
 
         self.gamma = 0.99
-        self.learning_rate = 0.0003
+        self.learning_rate = 0.001
         self.batch_size = 64
         self.target_update_freq = 100
 
-        self.stall_counter = 0
-        self.stall_threshold = 500
-
-        # Con NoisyNet, l'esplorazione è incorporata, quindi l'ε può essere molto bassa
-        self.epsilon = 0.01
         self.action_history = []
-        self.visited_positions = set()  # Da utilizzare per tracking delle posizioni già visitate
+        self.visited_positions = deque(maxlen=20)
+
+        self.epsilon = 1.0
+        self.epsilon_min = 0.01
+        self.epsilon_decay = 0.995
 
         self.model = QNetwork(state_size, action_size).to(device)
         self.target_model = QNetwork(state_size, action_size).to(device)
@@ -126,8 +124,7 @@ class DQNAgent:
 
         self.memory = ReplayBuffer(capacity=10000)
         self.step = 0
-        self.target_berries = 197
-        self.collected_berries = 0
+        self.target_berries = 98
 
     def hard_update_target_model(self):
         self.target_model.load_state_dict(self.model.state_dict())
@@ -156,7 +153,6 @@ class DQNAgent:
         # Estraggo le informazioni dei muri dallo stato (assumo che siano alle posizioni 13-16)
         wall_up, wall_down, wall_left, wall_right = state[13:17]
 
-        # Maschera le azioni bloccate (UP=0, DOWN=1, LEFT=2, RIGHT=3)
         if wall_up:
             q_values[0] = -np.inf
         if wall_down:
@@ -173,6 +169,7 @@ class DQNAgent:
     def replay(self):
         if len(self.memory) < self.batch_size:
             return 0
+
         minibatch = self.memory.sample(self.batch_size)
         states = torch.FloatTensor(np.stack([np.squeeze(m[0]) for m in minibatch])).to(device)
         actions = torch.LongTensor(np.array([m[1] for m in minibatch])).to(device)
@@ -197,6 +194,7 @@ class DQNAgent:
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
         self.optimizer.step()
+
         self.step += 1
         if self.step % self.target_update_freq == 0:
             self.hard_update_target_model()
@@ -205,7 +203,5 @@ class DQNAgent:
         return loss.item()
 
     def reset_episode(self):
-        self.collected_berries = 0
-        self.visited_positions = set()
-        self.stall_counter = 0
-        self.action_history = []  # Resetta la cronologia delle azioni
+        self.visited_positions.clear()
+        self.action_history = []
