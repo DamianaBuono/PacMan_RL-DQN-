@@ -212,7 +212,7 @@ class World:
                 reward += 2.0  # ← normalizzato
                 self.total_positive += 2.0
                 pacman.pac_score += 10
-                milestones = {24: 0.5, 49: 1.0} #, 98: 1.5, 147: 2.0
+                milestones = {24: 0.5, 49: 1.0, 98: 1.5} #, 98: 1.5, 147: 2.0
                 for m, bonus in milestones.items():
                     if pacman.n_bacche == m and m not in pacman.milestones_rewarded:
                         reward += bonus
@@ -225,6 +225,7 @@ class World:
                     pacman.immune_time = 150
                     pacman.pac_score += 50
                 berry.kill()
+                break
 
 
         for ghost in self.ghosts.sprites():
@@ -236,7 +237,7 @@ class World:
                     reward -= 3.0  # ← normalizzato
                 self.total_penalty += 3.0
 
-        return int(reward)
+        return reward
 
     def compute_action_reward(self, action):
         actions_map = {0: (0, -PLAYER_SPEED), 1: (0, PLAYER_SPEED), 2: (-PLAYER_SPEED, 0), 3: (PLAYER_SPEED, 0)}
@@ -257,7 +258,7 @@ class World:
 
 
         self.agent.visited_positions.append(new_pos)
-        return int(action_reward)
+        return action_reward
 
     def compute_final_bonus(self):
         pacman = self.player.sprite
@@ -359,6 +360,7 @@ class World:
 
     def update(self):
         if not self.game_over:
+            print("SONO IN UPDATE SENZA RL!")
             pressed_key = pygame.key.get_pressed()
             self.player.sprite.animate(pressed_key, self.walls_collide_list)
             if self.player.sprite.rect.right <= 0:

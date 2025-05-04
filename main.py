@@ -92,8 +92,8 @@ class Main:
 
                     if world.loss:
                         episode_losses.append(world.loss)
-                    pygame.display.update()
-                    self.FPS.tick(30)
+                    #pygame.display.update()
+                    #self.FPS.tick(30)
 
                 avg_reward = episode_reward / episode_steps if episode_steps > 0 else 0.0
                 lives = world.player.sprite.life
@@ -203,10 +203,10 @@ if __name__ == "__main__":
     mode = "training"  # Modifica in base alla modalità desiderata
 
     if mode == "training":
-        model_path = r"C:\Users\mucci\Desktop\IA\ModelliDQN\Training_Pacman_0_con_98b_noisy\Training_Pacman_0_con_98b_noisy.pth"
+        model_path = r"C:\Users\mucci\Desktop\IA\ModelliDQN\Training_Pacman1_01_con_98b_noisy\Training_Pacman1_01_con_98b_noisy.pth"
         main_obj = Main(screen, model_path)
-        training_name = "Training_Pacman_01_con_98b_noisy"
-        main_obj.simulate_training(episodes= 10000, training_name=training_name)
+        training_name = "Training_Pacman1_02_con_98b_noisy"
+        main_obj.simulate_training(episodes= 15000, training_name=training_name)
     elif mode == "testing":
         model_path = r"C:\Users\claud\Desktop\IA\ModelliSalvati\Training_Pacman_8_con_noisy\Training_Pacman_8_con_noisy.pth"
         main_obj = Main(screen, model_path=model_path)
