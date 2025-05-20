@@ -1,216 +1,200 @@
-import pygame, sys, os
+import pygame
+import sys
+import os
 import numpy as np
 import torch
-import pandas as pd
-import matplotlib.pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 
-from settings import WIDTH, HEIGHT, NAV_HEIGHT
-from worldDQL import World
-from reinforcementDQL import DQNAgent  # L'agente ora non gestisce più il reward
+from settings import WIDTH, HEIGHT, NAV_HEIGHT, MAX_STEPS
+from worldDQN import World
+from reinforcementDQN import DQNAgent  # use the DQN agent
 
+BASE_MODEL_DIR = r"C:\Users\claud\Desktop\IA\ModelliDQN"
+BASE_TESTING_DIR = r"C:\Users\claud\Desktop\IA\TestDQN"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# Inizializzazione di pygame
-pygame.init()
-
-# Impostazione della finestra di gioco con area per il navigational bar
-screen = pygame.display.set_mode((WIDTH, HEIGHT + NAV_HEIGHT))
-pygame.display.set_caption("PacMan")
-
-# Directory per TensorBoard e per il salvataggio dei modelli
-BASE_LOG_DIR = r"C:\Users\claud\PycharmProjects\tensorboard"
-BASE_MODEL_DIR = r"C:\Users\mucci\Desktop\IA\ModelliDQN"
-
 
 class Main:
     def __init__(self, screen, model_path=None):
+        pygame.init()
         self.screen = screen
         self.FPS = pygame.time.Clock()
-        self.agent = DQNAgent(state_size=19, action_size=4)
-        if model_path and os.path.exists(model_path):
-            checkpoint = torch.load(model_path, map_location=device)
-            # Gestione dei diversi formati di salvataggio:
-            if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-                self.agent.model.load_state_dict(checkpoint['model_state_dict'])
-                self.agent.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-                print(f"Modello e ottimizzatore caricati con successo da {model_path}")
-            else:
-                # Se il checkpoint non contiene le chiavi previste, assumiamo di avere solo lo state_dict del modello
-                self.agent.model.load_state_dict(checkpoint)
-                print(f"Solo modello caricato da {model_path} (nessun ottimizzatore)")
-        else:
-            print("Nessun modello fornito o non trovato, inizializzando un nuovo modello.")
 
-    def main(self):
-        """Modalità manuale di gioco."""
-        world = World(self.screen)
-        while True:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    pygame.quit()
-                    sys.exit()
-            # Modalità manuale: aggiorna l’ambiente (il world gestisce tutta la logica incluso il reward)
-            world.update()
-            pygame.display.update()
-            self.FPS.tick(30)
+        # Create DQN agent
+        self.agent = DQNAgent(state_size=14, action_size=4)
+        if model_path and os.path.exists(model_path):
+            self.agent.load(model_path)
+            print(f"DQN model loaded from {model_path}")
+        else:
+            print("No pre-trained model found, starting fresh.")
 
     def simulate_training(self, episodes, training_name):
         save_dir = os.path.join(BASE_MODEL_DIR, training_name)
         os.makedirs(save_dir, exist_ok=True)
-        print(f"Tutti i file verranno salvati in: {save_dir}")
+        print(f"All files will be saved in: {save_dir}")
 
-        log_dir = os.path.join(save_dir, "tensorboard_logs")
-        writer = SummaryWriter(log_dir=log_dir)
+        writer = SummaryWriter(log_dir=os.path.join(save_dir, "tensorboard_logs"))
         episodes_data = []
 
-        validation_states = []
+        # Prepare validation states
         num_val_states = 50
-        val_world = World(self.screen)
+        validation_states = []
+        val_world = World(self.screen, agent=self.agent)
+        val_world.agent.epsilon = 0.0
         for _ in range(num_val_states):
-            val_world.updateRL()
-            validation_states.append(val_world.get_current_state())
+            validation_states.append(val_world.reset())
         validation_states = np.stack(validation_states)
 
         try:
-            for episode in range(episodes):
-                world = World(self.screen)
-                self.agent.reset_episode()
-                state = np.reshape(world.get_current_state(), [1, self.agent.state_size])
+            for ep in range(episodes):
+                world = World(self.screen, agent=self.agent)
+                state = world.reset()
+
                 episode_reward = 0
                 episode_steps = 0
                 episode_losses = []
-
-                while not world.game_over:
+                done = False
+                while not done and episode_steps < MAX_STEPS:
                     action = self.agent.act(state)
-                    world.apply_action(action)
-                    world.updateRL()
-                    next_state = np.reshape(world.get_current_state(), [1, self.agent.state_size])
+                    next_state, reward, done = world.step(action)
+
+                    # store and train
+                    self.agent.remember(state, action, reward, next_state, done)
+                    l = self.agent.replay()
+                    if l is not None:
+                        episode_losses.append(l)
+
                     state = next_state
+                    episode_reward += reward
+                    #episode_losses.append(self.agent.last_loss)
                     episode_steps += 1
-                    episode_reward = world.total_reward
 
-                    if world.loss:
-                        episode_losses.append(world.loss)
-                    #pygame.display.update()
-                    #self.FPS.tick(30)
+                    # render if desired
+                    world.render()
+                    pygame.display.update()
+                    self.FPS.tick(30)
 
+                avg_loss = float(np.mean(episode_losses)) if episode_losses else 0.0
                 avg_reward = episode_reward / episode_steps if episode_steps > 0 else 0.0
                 lives = world.player.sprite.life
                 berries = world.player.sprite.n_bacche
-                avg_loss = np.mean(episode_losses) if episode_losses else 0.0
                 penalty_total = world.total_penalty
                 positive_total = world.total_positive
-
-                print(f"Episode {episode + 1}: Reward = {episode_reward}, Steps = {episode_steps}, "
-                      f"Lives = {lives}, Berries = {berries}, Avg Loss = {avg_loss:.4f}, "
-                      f"Avg Reward = {avg_reward:.4f}, Total Penalty = {penalty_total}, Total Positive = {positive_total}")
+                level_reached = world.game_level
 
                 episodes_data.append({
-                    "Episode": episode + 1,
-                    "Cumulative_Reward": episode_reward,
-                    "Average_Reward": avg_reward,
+                    "Episode": ep + 1,
+                    "TotalReward": episode_reward,
+                    "AverageReward": avg_reward,
                     "Steps": episode_steps,
-                    "Remaining_Lives": lives,
-                    "Berries_Eaten": berries,
-                    "Average_Loss": avg_loss,
-                    "Total_Penalty": penalty_total,
-                    "Total_Positive": positive_total
+                    "RemainingLives": lives,
+                    "Berries": berries,
+                    "AverageLoss": avg_loss,
+                    "TotalPenalty": penalty_total,
+                    "TotalPositive": positive_total,
+                    "Level": level_reached
                 })
-
-                # Calcolo media mobile sugli ultimi 100 episodi
-                window = 100
-                start_idx = max(0, episode - window + 1)
-                recent = episodes_data[start_idx:episode + 1]
+                # world.restart_level()
+                window = 1000
+                start_idx = max(0, ep - window + 1)
+                recent = episodes_data[start_idx:ep + 1]
 
                 def moving_avg(key):
                     return np.mean([ep[key] for ep in recent])
 
-                writer.add_scalar("Reward/Cumulative_Reward_MA100", moving_avg("Cumulative_Reward"), episode)
-                writer.add_scalar("Reward/Average_Reward_MA100", moving_avg("Average_Reward"), episode)
-                writer.add_scalar("Env/Avg_Loss_MA100", moving_avg("Average_Loss"), episode)
-                writer.add_scalar("Env/Remaining_Lives_MA100", moving_avg("Remaining_Lives"), episode)
-                writer.add_scalar("Env/Berries_Eaten_MA100", moving_avg("Berries_Eaten"), episode)
-                writer.add_scalar("Env/Steps_MA100", moving_avg("Steps"), episode)
-                writer.add_scalar("Reward/Total_Penalty_MA100", moving_avg("Total_Penalty"), episode)
-                writer.add_scalar("Reward/Total_Positive_MA100", moving_avg("Total_Positive"), episode)
+                if ep == 0 or (ep + 1) % 100 == 0:
+                    print(f"""[Ep {ep + 1}] Moving Averages over last {len(recent)} episodes:
+                                      TotalReward     : {moving_avg('TotalReward'):.4f}
+                                      AverageReward   : {moving_avg('AverageReward'):.4f}
+                                      AverageLoss     : {moving_avg('AverageLoss'):.4f}
+                                      Steps           : {moving_avg('Steps'):.2f}
+                                      RemainingLives  : {moving_avg('RemainingLives'):.2f}
+                                      Berries         : {moving_avg('Berries'):.2f}
+                                      TotalPenalty    : {moving_avg('TotalPenalty'):.2f}
+                                      TotalPositive   : {moving_avg('TotalPositive'):.2f}
+                                      Level           : {moving_avg('Level'):.2f}""")
 
-                # Q-value medio su stati di validazione
+                writer.add_scalar("Reward/Cumulative", moving_avg("TotalReward"), ep)
+                writer.add_scalar("Reward/Average", moving_avg("AverageReward"), ep)
+                writer.add_scalar("Env/Avg_Loss", moving_avg("AverageLoss"), ep)
+                writer.add_scalar("Env/Remaining_Lives", moving_avg("RemainingLives"), ep)
+                writer.add_scalar("Env/Berries_Eaten", moving_avg("Berries"), ep)
+                writer.add_scalar("Env/Steps", moving_avg("Steps"), ep)
+                writer.add_scalar("Reward/Total_Penalty", moving_avg("TotalPenalty"), ep)
+                writer.add_scalar("Reward/Total_Positive", moving_avg("TotalPositive"), ep)
+                writer.add_scalar("Env/Level", moving_avg("Level"), ep)
+
+                # validation Q-value
+                self.agent.model.eval()  # modalità eval per inference
                 with torch.no_grad():
-                    q_values = self.agent.model(torch.FloatTensor(validation_states).to(device))
-                    avg_q = q_values.mean().item()
-                writer.add_scalar("Validation/Avg_Q", avg_q, episode)
+                    # validation_states è un array NumPy di shape (N, state_size)
+                    val_tensor = torch.FloatTensor(validation_states).to(device)
+                    qs = self.agent.model(val_tensor)  # shape: (N, action_size)
+                    max_qs, _ = qs.max(dim=1, keepdim=False)  # shape: (N,)
+                    avg_q = max_qs.mean().item()  # scalare
+
+                writer.add_scalar("Validation/Avg_Q", avg_q, ep)
+                self.agent.model.train()  # torna in modalità train
 
         except KeyboardInterrupt:
-            print("\nTraining interrotto manualmente. Salvataggio dei dati...")
+            print("\nTraining interrupted.")
+
         finally:
             writer.close()
-
-            results_df = pd.DataFrame(episodes_data)
-            results_file = os.path.join(save_dir, f"training_results({training_name}).xlsx")
-            results_df.to_excel(results_file, index=False)
-            print(f"Risultati salvati in {results_file}")
-
-            if not results_df.empty:
-                def plot_line(y, label, color):
-                    plt.figure(figsize=(10, 6))
-                    plt.plot(results_df["Episode"], results_df[y], marker='o', linestyle='-', color=color)
-                    plt.title(f'{label} per Episode')
-                    plt.xlabel('Episode')
-                    plt.ylabel(label)
-                    plt.grid(True)
-                    plt.savefig(os.path.join(save_dir, f"training_{y}.png"))
-                    plt.close()
-
-                plot_line("Cumulative_Reward", "Cumulative Reward", "blue")
-                plot_line("Average_Reward", "Average Reward", "purple")
-                plot_line("Remaining_Lives", "Remaining Lives", "orange")
-                plot_line("Berries_Eaten", "Berries Eaten", "green")
-                plot_line("Average_Loss", "Average Loss", "red")
-                plot_line("Total_Penalty", "Total Penalty", "darkred")
-                plot_line("Total_Positive", "Total Positive", "darkred")
-
-            model_filename = f"{training_name}.pth"
-            model_path = os.path.join(save_dir, model_filename)
-            torch.save({
-                'model_state_dict': self.agent.model.state_dict(),
-                'optimizer_state_dict': self.agent.optimizer.state_dict()
-            }, model_path)
-            print(f"Checkpoint completo salvato in {model_path}")
+            model_path = os.path.join(save_dir, "dqn_model.pth")
+            self.agent.save(model_path)
+            print(f"Model saved to {model_path}")
 
     def simulate_testing(self, episodes):
-        """Simula il testing dell'agente con il modello caricato."""
-        self.agent.epsilon = 0.0  # Policy deterministica durante il testing
-        scores = []
-        for episode in range(episodes):
-            world = World(self.screen)
-            state = np.reshape(world.get_current_state(), [1, self.agent.state_size])
-            while not world.game_over:
-                action = self.agent.act(state)
-                world.apply_action(action)
-                world.updateRL()
-                next_state = np.reshape(world.get_current_state(), [1, self.agent.state_size])
-                state = next_state
-                pygame.display.update()
-                self.FPS.tick(30)
-            scores.append(world.total_reward)
-            print(f"Test Episode {episode + 1}: Reward = {world.total_reward}")
-        print(f"Average Reward over {episodes} episodes: {np.mean(scores)}")
+        self.agent.epsilon = 0.0
+        test_log_dir = os.path.join(BASE_TESTING_DIR, "test_logs")
+        os.makedirs(test_log_dir, exist_ok=True)
+        writer = SummaryWriter(log_dir=test_log_dir)
 
+        all_rewards, all_steps = [], []
+        for ep in range(episodes):
+            world = World(self.screen, agent=self.agent)
+            state = world.reset()
+            done = False
+            total_reward, steps = 0, 0
+            while not done and steps < MAX_STEPS:
+                action = self.agent.act(state)
+                state, reward, done = world.step(action)
+                total_reward += reward
+                steps += 1
+            all_rewards.append(total_reward)
+            all_steps.append(steps)
+            print(f"[TEST] Ep {ep+1}: Reward={total_reward}, Steps={steps}")
+            writer.add_scalar("Test/Reward", total_reward, ep)
+            writer.add_scalar("Test/Steps", steps, ep)
+
+        print(f"Average Reward: {np.mean(all_rewards):.2f}, Average Steps: {np.mean(all_steps):.2f}")
+        writer.add_scalar("Test/Avg_Reward_All", np.mean(all_rewards), episodes)
+        writer.add_scalar("Test/Avg_Steps_All", np.mean(all_steps), episodes)
+        writer.close()
+
+    def main(self):
+        world = World(self.screen, agent=None)
+        while True:
+            for ev in pygame.event.get():
+                if ev.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+            world.update()
+            pygame.display.update()
+            self.FPS.tick(30)
 
 if __name__ == "__main__":
-    # Modalità: "training", "testing" o "game"
-    mode = "training"  # Modifica in base alla modalità desiderata
+    mode = "training"  # or "testing" or "game"
+    screen = pygame.display.set_mode((WIDTH, HEIGHT + NAV_HEIGHT))
+    pygame.display.set_caption("PacMan")
 
     if mode == "training":
-        model_path = r"C:\Users\mucci\Desktop\IA\ModelliDQN\Training_Pacman1_01_con_98b_noisy\Training_Pacman1_01_con_98b_noisy.pth"
-        main_obj = Main(screen, model_path)
-        training_name = "Training_Pacman1_02_con_98b_noisy"
-        main_obj.simulate_training(episodes= 15000, training_name=training_name)
+        model_path = os.path.join(BASE_MODEL_DIR, "DQN_PacMan", "dqn_model.pth")
+        main_obj = Main(screen, model_path=model_path)
     elif mode == "testing":
-        model_path = r"C:\Users\claud\Desktop\IA\ModelliSalvati\Training_Pacman_8_con_noisy\Training_Pacman_8_con_noisy.pth"
+        model_path = os.path.join(BASE_TESTING_DIR, "DQN_PacMan", "dqn_model.pth")
         main_obj = Main(screen, model_path=model_path)
         main_obj.simulate_testing(episodes=10)
-    elif mode == "game":
+    else:
         main_obj = Main(screen)
         main_obj.main()
