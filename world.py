@@ -10,13 +10,12 @@ from berry import Berry
 from ghost import Ghost
 from display import Display
 from collections import Counter
-from reinforcementDQN import DQNAgent  # ← il tuo Q‑Learning tabulare
+from reinforcement import SarsaAgent
 
 class World:
     LOOP_WINDOW = 6  # quante mosse/posizioni tenere in memoria
     LOOP_DIST_THRESHOLD = 2
-
-    def __init__(self, screen, agent: DQNAgent):
+    def __init__(self, screen, agent: SarsaAgent):
         self.screen = screen
         self.agent = agent
 
@@ -309,8 +308,8 @@ class World:
                 self.total_positive += 10.0
                 pacman.pac_score += 10
                 if berry.power_up:
-                    reward += 40.0
-                    self.total_positive += 40.0
+                    reward += 20.0
+                    self.total_positive += 20.0
                     pacman.immune = True
                     pacman.immune_time = 175
                     pacman.pac_score += 50
@@ -325,8 +324,8 @@ class World:
                     reward += 20.0
                     self.total_positive += 20.0
                 else:
-                    reward -= 10.0
-                    self.total_penalty += 10.0
+                    reward -= 30.0
+                    self.total_penalty += 30.0
         return reward
 
     def compute_action_reward(self, action):
@@ -357,7 +356,7 @@ class World:
         if self.episode_lost:
             #print("reward negativa fine episodio applicata ")
             penalty = -50.0
-            self.total_penalty += 50
+            self.total_penalty += 50.0
             return penalty
         return 0.0
 
