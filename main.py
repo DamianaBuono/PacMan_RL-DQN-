@@ -9,8 +9,8 @@ from settings import WIDTH, HEIGHT, NAV_HEIGHT, MAX_STEPS
 from world import World
 from reinforcement import  SarsaAgent
 
-BASE_MODEL_DIR = r"C:\Users\claud\Desktop\IA\ModelliSarsa"
-BASE_TESTING_DIR = r"C:\Users\claud\Desktop\IA\TestSarsa"
+BASE_MODEL_DIR = r"C:\Users\mucci\Desktop\IA\ModelliSarsa"
+BASE_TESTING_DIR = r"C:\Users\mucci\Desktop\IA\TestSarsa"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class Main:
@@ -143,14 +143,20 @@ class Main:
             self.agent.save(model_path)
             print(f"Model saved to {model_path}")
 
-    def simulate_testing(self, episodes):
-        self.agent.epsilon = 0.0
-        test_log_dir = os.path.join(BASE_TESTING_DIR, "test_logs")
-        os.makedirs(test_log_dir, exist_ok=True)
-        writer = SummaryWriter(log_dir=test_log_dir)
+    def simulate_testing(self, episodes, test_name):
+        self.agent.epsilon = 0.0  # disattiva esplorazione
+        test_dir = os.path.join(BASE_TESTING_DIR, test_name)
+        os.makedirs(test_dir, exist_ok=True)
+        writer = SummaryWriter(log_dir=os.path.join(test_dir, "tensorboard_logs"))
 
+        print(f"[TEST] Risultati saranno salvati in: {test_dir}")
+
+        test_data = []
         all_rewards = []
         all_steps = []
+        all_lives = []
+        all_berries = []
+        all_levels = []
         win_count = 0
 
         for ep in range(episodes):
@@ -169,25 +175,54 @@ class Main:
                 total_reward += reward
                 steps += 1
 
+                world.render()
+                pygame.display.update()
+                self.FPS.tick(30)
+
+            lives = world.player.sprite.life
+            berries = world.player.sprite.n_bacche
+            level = world.game_level
+            win = int(world.episode_won)
+
             all_rewards.append(total_reward)
             all_steps.append(steps)
-            win_count += int(world.episode_won)
+            all_lives.append(lives)
+            all_berries.append(berries)
+            all_levels.append(level)
+            win_count += win
 
-            print(f"[TEST] Ep {ep + 1}: Reward={total_reward:.2f}, Steps={steps}, Win={world.episode_won}")
+            test_data.append({
+                "Episode": ep + 1,
+                "TotalReward": total_reward,
+                "Steps": steps,
+                "RemainingLives": lives,
+                "Berries": berries,
+                "Level": level,
+                "Win": win
+            })
 
-            writer.add_scalar("Test/Reward", total_reward, ep)
-            writer.add_scalar("Test/Steps", steps, ep)
-            writer.add_scalar("Test/WinRate", win_count / (ep + 1), ep)
-
-        avg_r = np.mean(all_rewards)
-        avg_s = np.mean(all_steps)
+        avg_reward = np.mean(all_rewards)
+        avg_steps = np.mean(all_steps)
+        print(" STEP: ", avg_steps)
+        avg_lives = np.mean(all_lives)
+        avg_berries = np.mean(all_berries)
+        avg_level = np.mean(all_levels)
         win_rate = win_count / episodes
+        print(" win_count: ", win_count)
 
-        print(f"--- TEST RESULTS over {episodes} eps ---")
-        print(f"Avg Reward: {avg_r:.2f}, Avg Steps: {avg_s:.2f}, Win Rate: {win_rate:.2%}")
+        print(f"\n--- RISULTATI FINALI TEST ({episodes} episodi) ---")
+        print(f"Avg Reward     : {avg_reward:.2f}")
+        print(f"Avg Steps      : {avg_steps:.2f}")
+        print(f"Avg Lives      : {avg_lives:.2f}")
+        print(f"Avg Berries    : {avg_berries:.2f}")
+        print(f"Avg Level      : {avg_level:.2f}")
+        print(f"Win Rate       : {win_rate:.2%}")
 
-        writer.add_scalar("Test/Avg_Reward_All", avg_r, episodes)
-        writer.add_scalar("Test/Avg_Steps_All", avg_s, episodes)
+        writer.add_scalar("Test/Avg_Reward_All", avg_reward, episodes)
+        writer.add_scalar("Test/Avg_Steps_All", avg_steps, episodes)
+        writer.add_scalar("Test/Avg_Lives_All", avg_lives, episodes)
+        writer.add_scalar("Test/Avg_Berries_All", avg_berries, episodes)
+        writer.add_scalar("Test/Avg_Level_All", avg_level, episodes)
         writer.add_scalar("Test/Win_Rate_All", win_rate, episodes)
         writer.close()
 
@@ -203,17 +238,18 @@ class Main:
             self.FPS.tick(30)
 
 if __name__ == "__main__":
-    mode = "training"  # or "testing" or "game"
+    mode = "game"  # or "testing" or "game"
     screen = pygame.display.set_mode((WIDTH, HEIGHT + NAV_HEIGHT))
     pygame.display.set_caption("PacMan")
 
     if mode == "training":
-        model_path = os.path.join(BASE_MODEL_DIR, "", "sarsa_model.pkl")
+        model_path = os.path.join(BASE_MODEL_DIR, "SARSA_PacMan2", "sarsa_model.pkl")
         main_obj = Main(screen, model_path=model_path)
+        main_obj.simulate_training(episodes=300000, training_name="SARSA_PacMan8")
     elif mode == "testing":
-        model_path = os.path.join(BASE_TESTING_DIR, "sarsa_PacMan", "sarsa_model.pkl")
+        model_path = os.path.join(BASE_MODEL_DIR, "SARSA_PacMan2", "sarsa_model.pkl")
         main_obj = Main(screen, model_path=model_path)
-        main_obj.simulate_testing(episodes=10)
-    else:
+        main_obj.simulate_testing(episodes=1000,test_name= "Test_SARSA_PacMan1" )
+    elif mode == "game":
         main_obj = Main(screen)
         main_obj.main()

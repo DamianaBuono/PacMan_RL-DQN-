@@ -1,6 +1,5 @@
 import pygame
 import random
-import time
 
 from settings import WIDTH, CHAR_SIZE, GHOST_SPEED
 
@@ -27,9 +26,22 @@ class Ghost(pygame.sprite.Sprite):
 		self.keys = ['left', 'right', 'up', 'down']
 		self.direction = (0, 0)
 
-	def move_to_start_pos(self):
+	def move_to_start_pos(self, player_rect=None, map_data=None):
+		# Tenta di tornare alla posizione iniziale
 		self.rect.x = self.abs_x
 		self.rect.y = self.abs_y
+
+		# Se il rettangolo è sovrapposto a Pac-Man e abbiamo dati mappa validi
+		if player_rect and self.rect.colliderect(player_rect) and map_data:
+			for row_idx, row in enumerate(map_data):
+				for col_idx, cell in enumerate(row):
+					if cell == '-':  # posizione libera
+						px = col_idx * CHAR_SIZE
+						py = row_idx * CHAR_SIZE
+						test_rect = pygame.Rect(px, py, CHAR_SIZE, CHAR_SIZE)
+						if not test_rect.colliderect(player_rect):
+							self.rect.topleft = (px, py)
+							return
 
 	def is_collide(self, x, y, walls_collide_list):
 		tmp_rect = self.rect.move(x, y)

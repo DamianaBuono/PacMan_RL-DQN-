@@ -123,7 +123,7 @@ class World:
         if self.player.sprite.life <= 0:
             self.episode_lost = True
             return
-
+        max_ghosts = 4
         if not self.berries and self.player.sprite.life > 0:
             # Pacman ha completato il livello corrente
             self.total_reward += 10 * self.game_level
@@ -137,19 +137,18 @@ class World:
             # Aumenta difficoltà e resetta posizioni
             for ghost in self.ghosts.sprites():
                 #ghost.move_speed += self.game_level
-                ghost.move_to_start_pos()
+                ghost.move_to_start_pos(player_rect=self.player.sprite.rect, map_data=self.map)
 
             self.player.sprite.move_to_start_pos()
             self.player.sprite.direction = (0, 0)
             self.player.sprite.status = "idle"
 
-            if len(self.ghosts) < 4:
-                self.increase_difficulty()
+            if len(self.ghosts) <  max_ghosts:
+                self.increase_difficulty(max_ghosts)
 
             self._generate_random_berries()
 
-    def increase_difficulty(self):
-        max_ghosts = 4
+    def increase_difficulty(self, max_ghosts):
         current_ghosts = len(self.ghosts)
 
         if current_ghosts < max_ghosts:
@@ -335,9 +334,12 @@ class World:
         dx, dy = actions_map[action]
         new_pos = (pacman.rect.x + dx, pacman.rect.y + dy)
         action_reward = 0.0
-        if new_pos == current_pos:
-            action_reward -= 0.02  # penalizzazione più severa per muro
-            self.total_penalty += 0.02
+        walls = self.check_walls(current_pos)
+        if (action == 0 and walls["up"]) or \
+                (action == 1 and walls["down"]) or \
+                (action == 2 and walls["left"]) or \
+                (action == 3 and walls["right"]):
+            action_reward -= 0.02
         elif new_pos in self.visited_positions:
             action_reward -= 0.05
             self.total_penalty += 0.05
@@ -390,7 +392,7 @@ class World:
             for ghost in self.ghosts.sprites():
                 if self.player.sprite.rect.colliderect(ghost.rect):
                     if self.player.sprite.immune:
-                        ghost.move_to_start_pos()
+                        ghost.move_to_start_pos(player_rect=self.player.sprite.rect, map_data=self.map)
                         self.player.sprite.pac_score += 100
                     else:
                         self.player.sprite.life -= 1
@@ -416,7 +418,8 @@ class World:
             self.total_reward += rw
 
             if self.reset_pos and not (self.episode_won and self.episode_lost):
-                for ghost in self.ghosts.sprites(): ghost.move_to_start_pos()
+                for ghost in self.ghosts.sprites(): ghost.move_to_start_pos(player_rect=self.player.sprite.rect, map_data=self.map)
+
                 self.player.sprite.move_to_start_pos()
                 self.player.sprite.direction = (0, 0)
                 self.reset_pos = False
@@ -455,8 +458,6 @@ class World:
             elif self.player.sprite.rect.left >= WIDTH:
                 self.player.sprite.rect.x = 0
 
-            rw = self.compute_reward()
-            self.total_reward += rw
             for berry in self.berries.sprites():
                 if self.player.sprite.rect.colliderect(berry.rect):
                     if berry.power_up:
@@ -475,7 +476,7 @@ class World:
                         self.reset_pos = True
                         break
                     else:
-                        ghost.move_to_start_pos()
+                        ghost.move_to_start_pos(player_rect=self.player.sprite.rect, map_data=self.map)
                         self.player.sprite.pac_score += 100
         self._check_game_state()
 
@@ -492,7 +493,7 @@ class World:
         self._dashboard()
 
         if self.reset_pos and not self.game_over:
-            [ghost.move_to_start_pos() for ghost in self.ghosts.sprites()]
+            [ghost.move_to_start_pos(player_rect=self.player.sprite.rect, map_data=self.map) for ghost in self.ghosts.sprites()]
             self.player.sprite.move_to_start_pos()
             self.player.sprite.status = "idle"
             self.player.sprite.direction = (0, 0)
