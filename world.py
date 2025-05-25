@@ -13,7 +13,7 @@ from collections import Counter
 from reinforcement import SarsaAgent
 
 class World:
-    LOOP_WINDOW = 8  # quante mosse/posizioni tenere in memoria
+    LOOP_WINDOW = 8
     LOOP_DIST_THRESHOLD = 2
     def __init__(self, screen, agent: SarsaAgent):
         self.screen = screen
@@ -303,12 +303,12 @@ class World:
         pacman = self.player.sprite
         for berry in self.berries.sprites():
             if pacman.rect.colliderect(berry.rect):
-                reward += 10.0  # Ricompensa base per bacca
-                self.total_positive += 10.0
+                reward += 15.0  # Ricompensa base per bacca
+                self.total_positive += 15.0
                 pacman.pac_score += 10
                 if berry.power_up:
-                    reward += 20.0
-                    self.total_positive += 20.0
+                    reward += 25.0
+                    self.total_positive += 25.0
                     pacman.immune = True
                     pacman.immune_time = 175
                     pacman.pac_score += 50
@@ -320,8 +320,8 @@ class World:
         for ghost in self.ghosts.sprites():
             if pacman.rect.colliderect(ghost.rect):
                 if pacman.immune:
-                    reward += 20.0
-                    self.total_positive += 20.0
+                    reward += 25.0
+                    self.total_positive += 25.0
                 else:
                     reward -= 30.0
                     self.total_penalty += 30.0
@@ -339,14 +339,14 @@ class World:
                 (action == 1 and walls["down"]) or \
                 (action == 2 and walls["left"]) or \
                 (action == 3 and walls["right"]):
-            action_reward -= 0.1
-            self.total_penalty += 0.1
+            action_reward -= 0.05
+            self.total_penalty += 0.05
         elif new_pos in self.visited_positions:
             action_reward -= 0.01
             self.total_penalty += 0.01
         else:
-            action_reward += 1.0
-            self.total_positive += 1.0
+            action_reward += 1.5
+            self.total_positive += 1.5
         self.visited_positions.add(new_pos)
         return action_reward
 
