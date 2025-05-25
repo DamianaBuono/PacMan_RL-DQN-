@@ -7,11 +7,13 @@ class SarsaAgent:
     def __init__(
         self,
         action_size,
-        buckets=(8,) * 14,
-        alpha=0.01,
-        gamma=0.80,
+        buckets=(12,) * 14,
+        alpha=0.1,
+        alpha_decay=0.9995,
+        alpha_min=0.01,
+        gamma=0.99,
         epsilon=1.0,
-        epsilon_decay=0.995,
+        epsilon_decay=0.990,
         epsilon_min=0.01,
     ):
         self.action_size = action_size
@@ -19,6 +21,8 @@ class SarsaAgent:
         self.last_loss = 0
         self.buckets = buckets
         self.alpha = alpha
+        self.alpha_decay = alpha_decay
+        self.alpha_min = alpha_min
         self.gamma = gamma
         self.epsilon = epsilon
         self.epsilon_decay = epsilon_decay
@@ -72,6 +76,8 @@ class SarsaAgent:
         td_error = td_target - self.q_table[s][action]
 
         self.q_table[s][action] += self.alpha * td_error
+        self.q_table[s][action] = np.clip(self.q_table[s][action], -1000, +1000)
+        self.alpha = max(self.alpha_min, self.alpha * self.alpha_decay)
         self.last_loss = td_error ** 2
 
         if done:
