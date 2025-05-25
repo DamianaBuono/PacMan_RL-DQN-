@@ -13,7 +13,7 @@ from collections import Counter
 from reinforcement import SarsaAgent
 
 class World:
-    LOOP_WINDOW = 6  # quante mosse/posizioni tenere in memoria
+    LOOP_WINDOW = 8  # quante mosse/posizioni tenere in memoria
     LOOP_DIST_THRESHOLD = 2
     def __init__(self, screen, agent: SarsaAgent):
         self.screen = screen
@@ -339,13 +339,14 @@ class World:
                 (action == 1 and walls["down"]) or \
                 (action == 2 and walls["left"]) or \
                 (action == 3 and walls["right"]):
-            action_reward -= 0.02
+            action_reward -= 0.1
+            self.total_penalty += 0.1
         elif new_pos in self.visited_positions:
-            action_reward -= 0.05
-            self.total_penalty += 0.05
+            action_reward -= 0.01
+            self.total_penalty += 0.01
         else:
-            action_reward += 0.2
-            self.total_positive += 0.2
+            action_reward += 1.0
+            self.total_positive += 1.0
         self.visited_positions.add(new_pos)
         return action_reward
 
@@ -363,11 +364,16 @@ class World:
         return 0.0
 
     def compute_loop_reward(self):
-        if self.detect_action_loop() or self.detect_position_loop():
-            penalty = -2.0
-            self.total_penalty += 2.0
-            return penalty
-        return 0.0
+        loop_penalty = 0.0
+
+        if self.detect_action_loop():
+            loop_penalty -= 0.5
+
+        if self.detect_position_loop():
+            loop_penalty -= 1.0
+
+        self.total_penalty += abs(loop_penalty)
+        return loop_penalty
 
     def step(self, action):
         if not self.game_over:
