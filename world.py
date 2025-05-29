@@ -128,11 +128,12 @@ class World:
             # Pacman ha completato il livello corrente
             self.total_reward += 10 * self.game_level
             self.total_positive += 10 * self.game_level
-            self.game_level += 1
 
             if self.game_level > self.max_levels:
                 self.episode_won = True
                 return
+
+            self.game_level += 1
 
             # Aumenta difficoltà e resetta posizioni
             for ghost in self.ghosts.sprites():
