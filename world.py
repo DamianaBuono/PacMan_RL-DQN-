@@ -30,7 +30,7 @@ class World:
         self.episode_won = False
         self.episode_lost = False
         self.reset_pos = False
-        self.max_levels = 4
+        self.max_levels = 2
         self.game_level = 1
         self.total_reward = 0
         # Storico per rilevare loop di azioni e posizioni
@@ -61,7 +61,7 @@ class World:
         self._generate_random_berries()
         self.walls_collide_list = [wall.rect for wall in self.walls.sprites()]
 
-    def _generate_random_berries(self, num_berries=5):
+    def _generate_random_berries(self, num_berries=10):
         self.berries.empty()  # Pulisce il gruppo di bacche
         player_pos = (self.player.sprite.rect.x, self.player.sprite.rect.y)  # Usa rect.x e rect.y
         ghost_positions = [(g.rect.x, g.rect.y) for g in self.ghosts]
@@ -123,13 +123,13 @@ class World:
         if self.player.sprite.life <= 0:
             self.episode_lost = True
             return
-        max_ghosts = 4
+        max_ghosts = 2
         if not self.berries and self.player.sprite.life > 0:
             # Pacman ha completato il livello corrente
             self.total_reward += 10 * self.game_level
             self.total_positive += 10 * self.game_level
 
-            if self.game_level > self.max_levels:
+            if self.game_level >= self.max_levels:
                 self.episode_won = True
                 return
 

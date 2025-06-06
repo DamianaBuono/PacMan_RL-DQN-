@@ -144,7 +144,7 @@ class Main:
             print(f"Model saved to {model_path}")
 
     def simulate_testing(self, episodes, test_name):
-        self.agent.epsilon = 0.0  # disattiva esplorazione
+        self.agent.epsilon = 0.00
         test_dir = os.path.join(BASE_TESTING_DIR, test_name)
         os.makedirs(test_dir, exist_ok=True)
         writer = SummaryWriter(log_dir=os.path.join(test_dir, "tensorboard_logs"))
@@ -152,12 +152,17 @@ class Main:
         print(f"[TEST] Risultati saranno salvati in: {test_dir}")
 
         test_data = []
-        all_rewards = []
-        all_steps = []
-        all_lives = []
-        all_berries = []
-        all_levels = []
-        win_count = 0
+        cumulative_stats = {
+            "TotalReward": [],
+            "Steps": [],
+            "RemainingLives": [],
+            "Berries": [],
+            "Level": [],
+            "Win": [],
+        }
+
+        # Stats cumulativi per livello (non si resettano ogni episodio!)
+        level_stats = {lvl: {"rewards": [], "lives": [], "berries": [], "wins": []} for lvl in range(1, 5)}
 
         for ep in range(episodes):
             world = World(self.screen, agent=self.agent)
@@ -167,7 +172,14 @@ class Main:
             steps = 0
             done = False
 
+            reward_per_level = {lvl: 0.0 for lvl in range(1, 5)}
+            steps_per_level = {lvl: 0 for lvl in range(1, 5)}
+            levels_visited = set()
+            lives_per_level = {}
+            berries_per_level = {}
+
             while not done and steps < MAX_STEPS:
+                current_level = world.game_level
                 action = self.agent.act(state)
                 next_state, reward, done = world.step(action)
                 state = next_state
@@ -175,55 +187,69 @@ class Main:
                 total_reward += reward
                 steps += 1
 
-                world.render()
-                pygame.display.update()
-                self.FPS.tick(30)
+                levels_visited.add(current_level)
+                reward_per_level[current_level] += reward
+                steps_per_level[current_level] += 1
 
+                lives_per_level[current_level] = world.player.sprite.life
+                berries_per_level[current_level] = world.player.sprite.n_bacche
+
+                world.render()
+                #pygame.display.update()
+                #self.FPS.tick(30)
+
+            # Raccolta metriche globali episodio
             lives = world.player.sprite.life
             berries = world.player.sprite.n_bacche
-            level = world.game_level
+            final_level = world.game_level
+            max_level = max(levels_visited) if levels_visited else 1
+            avg_reward = total_reward / steps if steps > 0 else 0.0
             win = int(world.episode_won)
 
-            all_rewards.append(total_reward)
-            all_steps.append(steps)
-            all_lives.append(lives)
-            all_berries.append(berries)
-            all_levels.append(level)
-            win_count += win
-
-            test_data.append({
+            episode_result = {
                 "Episode": ep + 1,
-                "TotalReward": total_reward,
+                "TotalReward": avg_reward,
                 "Steps": steps,
                 "RemainingLives": lives,
                 "Berries": berries,
-                "Level": level,
+                "Level": final_level,
+                "MaxLevelReached": max_level,
                 "Win": win
-            })
+            }
+            test_data.append(episode_result)
 
-        avg_reward = np.mean(all_rewards)
-        avg_steps = np.mean(all_steps)
-        print(" STEP: ", avg_steps)
-        avg_lives = np.mean(all_lives)
-        avg_berries = np.mean(all_berries)
-        avg_level = np.mean(all_levels)
-        win_rate = win_count / episodes
-        print(" win_count: ", win_count)
+            for key in cumulative_stats:
+                cumulative_stats[key].append(episode_result[key])
 
-        print(f"\n--- RISULTATI FINALI TEST ({episodes} episodi) ---")
-        print(f"Avg Reward     : {avg_reward:.2f}")
-        print(f"Avg Steps      : {avg_steps:.2f}")
-        print(f"Avg Lives      : {avg_lives:.2f}")
-        print(f"Avg Berries    : {avg_berries:.2f}")
-        print(f"Avg Level      : {avg_level:.2f}")
-        print(f"Win Rate       : {win_rate:.2%}")
+            # Aggiunge metriche per livello (cumulative)
+            for lvl in levels_visited:
+                lvl_steps = steps_per_level[lvl]
+                lvl_reward = reward_per_level[lvl] / lvl_steps if lvl_steps > 0 else 0.0
+                lvl_lives = lives_per_level.get(lvl, lives)
+                lvl_berries = berries_per_level.get(lvl, berries)
 
-        writer.add_scalar("Test/Avg_Reward_All", avg_reward, episodes)
-        writer.add_scalar("Test/Avg_Steps_All", avg_steps, episodes)
-        writer.add_scalar("Test/Avg_Lives_All", avg_lives, episodes)
-        writer.add_scalar("Test/Avg_Berries_All", avg_berries, episodes)
-        writer.add_scalar("Test/Avg_Level_All", avg_level, episodes)
-        writer.add_scalar("Test/Win_Rate_All", win_rate, episodes)
+                level_stats[lvl]["rewards"].append(lvl_reward)
+                level_stats[lvl]["lives"].append(lvl_lives)
+                level_stats[lvl]["berries"].append(lvl_berries)
+                level_stats[lvl]["wins"].append(win)
+
+            # Logging solo ogni 100 episodi
+            if (ep + 1) % 100 == 0 or ep == episodes - 1:
+                print(f"[Ep {ep + 1}] Averages so far:")
+                for key in cumulative_stats:
+                    avg = np.mean(cumulative_stats[key])
+                    print(f"  {key:16}: {avg:.4f}")
+                    writer.add_scalar(f"Test/Avg_{key}_All", avg, ep)
+
+                # Logging metriche per livello
+                for lvl in range(1, 5):
+                    stats = level_stats[lvl]
+                    if stats["rewards"]:
+                        writer.add_scalar(f"TestL{lvl}/Avg_Reward", np.mean(stats["rewards"]), ep)
+                        writer.add_scalar(f"TestL{lvl}/Avg_Lives", np.mean(stats["lives"]), ep)
+                        writer.add_scalar(f"TestL{lvl}/Avg_Berries", np.mean(stats["berries"]), ep)
+                        writer.add_scalar(f"TestL{lvl}/Win_Rate", np.mean(stats["wins"]), ep)
+
         writer.close()
 
     def main(self):
@@ -238,18 +264,18 @@ class Main:
             self.FPS.tick(30)
 
 if __name__ == "__main__":
-    mode = "game"  # or "testing" or "game"
+    mode = "testing"  # or "testing" or "game"
     screen = pygame.display.set_mode((WIDTH, HEIGHT + NAV_HEIGHT))
     pygame.display.set_caption("PacMan")
 
     if mode == "training":
-        model_path = os.path.join(BASE_MODEL_DIR, "SARSA_PacMan2", "sarsa_model.pkl")
+        model_path = os.path.join(BASE_MODEL_DIR, "SARSA_PacMa", "sarsa_model.pkl")
         main_obj = Main(screen, model_path=model_path)
-        main_obj.simulate_training(episodes=300000, training_name="SARSA_PacMan8")
+        main_obj.simulate_training(episodes=150000, training_name="SARSA_PacMan_livello1")
     elif mode == "testing":
         model_path = os.path.join(BASE_MODEL_DIR, "SARSA_PacMan2", "sarsa_model.pkl")
         main_obj = Main(screen, model_path=model_path)
-        main_obj.simulate_testing(episodes=1000,test_name= "Test_SARSA_PacMan1" )
+        main_obj.simulate_testing(episodes=75000,test_name= "Test_SARSA_PacMan2" )
     elif mode == "game":
         main_obj = Main(screen)
         main_obj.main()
